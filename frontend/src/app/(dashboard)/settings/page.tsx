@@ -115,7 +115,7 @@ export default function Settings() {
       toast.success("สร้างรหัสจับคู่ LINE Bot สำเร็จ! พิมพ์รหัสบอกแชทบอท @fillax_bot 🤖✨");
     } catch (err: any) {
       console.error(err);
-      toast.error("ไม่สามารถดึงรหัสจับคู่ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง");
+      toast.error("ไม่สามารถดึงรหัสจับคู่ได้: " + (err.message || err.details || "เกิดข้อผิดพลาดทางระบบ"));
     } finally {
       setIsGeneratingPairing(false);
     }
