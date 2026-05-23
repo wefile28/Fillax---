@@ -1,0 +1,158 @@
+# ====================================================================
+# FILLAX COMPREHENSIVE GITIGNORE 🟢
+# ====================================================================
+# ไฟล์ระบุประเภทเอกสาร/โฟลเดอร์ที่ไม่ต้องการอัปโหลดขึ้น Git Repository
+# แยกหมวดหมู่ชัดเจนเพื่อความปลอดภัยสูงสุดและรักษาความสะอาดของ Codebase
+
+# --------------------------------------------------------------------
+# 🔑 Environment & Secrets (ระบบรักษาความปลอดภัย ข้อมูลความลับ)
+# --------------------------------------------------------------------
+# ป้องกันการหลุดรั่วของ API Keys, Database Credentials และโทเค็นต่างๆ
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+*.pem
+*.key
+*.cert
+*.pfx
+*.p12
+*.pub
+credentials.json
+client_secret*.json
+
+# --------------------------------------------------------------------
+# 🐍 Python & FastAPI Backend Patterns (ระบบหลังบ้าน)
+# --------------------------------------------------------------------
+# ไบนารีคอมไพล์ของ Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py.class
+
+# สภาพแวดล้อมจำลอง (Virtual Environments)
+.venv/
+venv/
+ENV/
+env/
+/backend/venv/
+/backend/.venv/
+
+# การทดสอบและการวัดความครอบคลุมโค้ด (Testing & Coverage)
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+.eggs/
+.egg-info/
+*.egg
+
+# --------------------------------------------------------------------
+# 📦 Node, React & Next.js Frontend Patterns (ระบบหน้าบ้าน)
+# --------------------------------------------------------------------
+# โฟลเดอร์ดาวน์โหลดแพ็กเกจ
+node_modules/
+/frontend/node_modules/
+
+# โฟลเดอร์สร้างผลลัพธ์ (Build & Export)
+.next/
+/frontend/.next/
+out/
+/frontend/out/
+build/
+/frontend/build/
+dist/
+/frontend/dist/
+
+# บันทึกข้อผิดพลาดในการโหลดแพ็กเกจ (Package Managers Logs)
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ร่องรอยการตรวจสอบสถานะ TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# โฟลเดอร์ Deployment ของ Vercel
+.vercel
+
+# --------------------------------------------------------------------
+# 🗄️ Databases & Local State (ฐานข้อมูลและไฟล์สถานะโลคอล)
+# --------------------------------------------------------------------
+# ฐานข้อมูล SQLite ท้องถิ่น หรือแคชข้อมูลของนักพัฒนา
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+dev.db
+/frontend/prisma/generated/
+/frontend/src/generated/
+
+# --------------------------------------------------------------------
+# 💻 OS Specific Patterns (ไฟล์ระบบปฏิบัติการ Windows / macOS)
+# --------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.Trashes
+VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# --------------------------------------------------------------------
+# 📝 IDEs, Editors & Tools (แคชของเครื่องมือเขียนโค้ด)
+# --------------------------------------------------------------------
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# IntelliJ / PyCharm / WebStorm
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Text Editors (Vim / Nano / Emacs)
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+# --------------------------------------------------------------------
+# 🗜️ Archive & Temporary Files (บีบอัดและไฟล์ชั่วคราว)
+# --------------------------------------------------------------------
+# ห้าม commit ไฟล์ซิปที่อาจแฝง env
+*.zip
+*.tar
+*.tar.gz
+*.gz
+*.rar
+*.7z
+*.log
+tmp/
+temp/
