@@ -100,16 +100,39 @@ export default function Settings() {
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes expiry
       
-      const { error } = await supabase
+      // Check if user already has a LINE profile record to bypass Postgres Unique Key constraints
+      const { data: existingProfiles, error: fetchError } = await supabase
         .from("line_profiles")
-        .upsert({
-          user_id: userId,
-          pairing_code: code,
-          pairing_expires_at: expiresAt,
-          created_at: new Date().toISOString()
-        }, { onConflict: "user_id" });
+        .select("id")
+        .eq("user_id", userId);
         
-      if (error) throw error;
+      if (fetchError) throw fetchError;
+      
+      let dbError;
+      if (existingProfiles && existingProfiles.length > 0) {
+        // Update existing record
+        const { error } = await supabase
+          .from("line_profiles")
+          .update({
+            pairing_code: code,
+            pairing_expires_at: expiresAt,
+          })
+          .eq("user_id", userId);
+        dbError = error;
+      } else {
+        // Insert new record
+        const { error } = await supabase
+          .from("line_profiles")
+          .insert({
+            user_id: userId,
+            pairing_code: code,
+            pairing_expires_at: expiresAt,
+            created_at: new Date().toISOString()
+          });
+        dbError = error;
+      }
+      
+      if (dbError) throw dbError;
       
       setPairingCode(code);
       toast.success("สร้างรหัสจับคู่ LINE Bot สำเร็จ! พิมพ์รหัสบอกแชทบอท @fillax_bot 🤖✨");
