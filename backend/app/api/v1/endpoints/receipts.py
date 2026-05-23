@@ -133,7 +133,7 @@ async def async_process_ocr(
                     raise ValueError("could not extract text from PDF. Ensure it is not an image-only scanned PDF.")
                     
                 response = client.messages.create(
-                    model="claude-3-5-sonnet-latest",
+                    model=settings.ANTHROPIC_MODEL,
                     max_tokens=800,
                     system="You are an expert receipt extraction assistant. You parse raw text and format it into clean JSON.",
                     messages=[
@@ -147,7 +147,7 @@ async def async_process_ocr(
                 # Image Base64 vision prompting
                 encoded_image = base64.b64encode(content).decode("utf-8")
                 response = client.messages.create(
-                    model="claude-3-5-sonnet-latest",
+                    model=settings.ANTHROPIC_MODEL,
                     max_tokens=800,
                     system="You are a state-of-the-art visual receipt OCR extraction assistant. You analyze receipt images and format them into clean JSON.",
                     messages=[

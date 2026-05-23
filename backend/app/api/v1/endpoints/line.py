@@ -260,7 +260,7 @@ async def handle_image_upload(line_user_id: str, message_id: str, reply_token: s
             """
             
             payload = {
-                "model": "claude-3-5-sonnet-latest",
+                "model": settings.ANTHROPIC_MODEL,
                 "max_tokens": 10,
                 "messages": [
                     {
@@ -383,7 +383,7 @@ async def process_receipt_image(img_bytes: bytes, file_url: str, user_id: str, r
         """
 
         payload = {
-            "model": "claude-3-5-sonnet-latest",
+            "model": settings.ANTHROPIC_MODEL,
             "max_tokens": 800,
             "messages": [
                 {
@@ -633,7 +633,7 @@ async def process_bank_slip_image(img_bytes: bytes, is_income: bool, user_id: st
         """
 
         payload = {
-            "model": "claude-3-5-sonnet-latest",
+            "model": settings.ANTHROPIC_MODEL,
             "max_tokens": 500,
             "messages": [
                 {

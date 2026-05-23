@@ -318,9 +318,9 @@ async def verify_slip(
             }
             """
             
-            # Call Anthropic Claude 3.5 Sonnet Vision Model
+            # Call Anthropic Claude Vision Model
             response = client.messages.create(
-                model="claude-3-5-sonnet-latest",
+                model=settings.ANTHROPIC_MODEL,
                 max_tokens=600,
                 system="You are an expert Thai Bank Transfer Slip OCR parser. You extract transaction metadata into clean JSON.",
                 messages=[

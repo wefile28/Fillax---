@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     # Anthropic (Required for AI assistant)
     ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-3-haiku-20240307"
 
     # LINE
     LINE_CHANNEL_ACCESS_TOKEN: str = ""

@@ -137,7 +137,7 @@ async def chat(
         
         # 3. Call Anthropic Claude API
         response = client.messages.create(
-            model="claude-3-5-sonnet-latest",  # Updated to official correct model ID
+            model=settings.ANTHROPIC_MODEL,
             max_tokens=1000,
             system=system,
             messages=[{"role": m.role, "content": m.content} for m in req.messages],
