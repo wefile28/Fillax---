@@ -75,9 +75,25 @@ export default function Settings() {
     try {
       setIsGeneratingPairing(true);
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("กรุณาเข้าสู่ระบบก่อนทำการเชื่อมแชทบอท");
-        return;
+      
+      let userId = "";
+      if (session) {
+        userId = session.user.id;
+      } else {
+        // --- GUEST/DEMO PAIRING WORKAROUND ---
+        userId = "00000000-0000-0000-0000-000000000000"; // Guest UUID
+        
+        // Ensure a profile record exists in Supabase so foreign key constraints don't fail
+        await supabase
+          .from("profiles")
+          .upsert({
+            id: userId,
+            name: "Guest Merchant",
+            phone: "",
+            business_type: "individual",
+            plan: "free",
+            updated_at: new Date().toISOString()
+          }, { onConflict: "id" });
       }
       
       // Generate a highly secure random 6-digit numeric OTP code
@@ -87,7 +103,7 @@ export default function Settings() {
       const { error } = await supabase
         .from("line_profiles")
         .upsert({
-          user_id: session.user.id,
+          user_id: userId,
           pairing_code: code,
           pairing_expires_at: expiresAt,
           created_at: new Date().toISOString()
