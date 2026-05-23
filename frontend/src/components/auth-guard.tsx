@@ -17,6 +17,13 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
+  // Email/Password Sign-In States
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [isSignUp, setIsSignUp] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [showEmailForm, setShowEmailForm] = useState<boolean>(false);
+
   // Automated 1-Click Database Migration (LocalStorage -> Supabase Cloud)
   const runDataMigration = useCallback(async (userId: string) => {
     const syncedFlag = localStorage.getItem("fillax_synced") === "true";
@@ -116,6 +123,56 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     };
   }, [runDataMigration]);
 
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      toast.error("กรุณากรอกอีเมลและรหัสผ่าน");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      if (isSignUp) {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) throw error;
+        
+        // Auto-create profile in Supabase to avoid foreign key failure
+        if (data?.user) {
+          await supabase.from("profiles").upsert({
+            id: data.user.id,
+            name: email.split("@")[0],
+            phone: "",
+            business_type: "individual",
+            plan: "free",
+            updated_at: new Date().toISOString()
+          }, { onConflict: "id" });
+        }
+        
+        toast.success("สมัครสมาชิกสำเร็จ! กำลังเข้าสู่ระบบ...");
+        // Auto sign in after sign up
+        const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInErr) {
+          toast.info("กรุณากดปุ่มเข้าสู่ระบบเพื่อดำเนินการต่อ");
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        toast.success("เข้าสู่ระบบสำเร็จ!");
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const handleGoogleLogin = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -213,41 +270,100 @@ export default function AuthGuard({ children }: AuthGuardProps) {
 
             {/* Action Buttons */}
             <div className="w-full space-y-4">
-              {/* Google login */}
-              <Button
-                onClick={handleGoogleLogin}
-                className="w-full h-13 rounded-2xl text-md font-bold shadow-lg shadow-primary/10 hover:scale-102 transition-transform flex items-center justify-center gap-3"
-              >
-                {/* Pixel-Perfect Inline Google SVG G-Logo */}
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path
-                    fill="currentColor"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  />
-                </svg>
-                เข้าสู่ระบบด้วย Google
-              </Button>
+              {showEmailForm ? (
+                <form onSubmit={handleEmailAuth} className="space-y-4 text-left">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase">อีเมล</label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="merchant@example.com"
+                      className="w-full h-11 px-3 rounded-xl border border-border bg-background/50 focus:outline-none focus:ring-2 focus:ring-primary text-xs font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-muted-foreground uppercase">รหัสผ่าน</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••"
+                      className="w-full h-11 px-3 rounded-xl border border-border bg-background/50 focus:outline-none focus:ring-2 focus:ring-primary text-xs"
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full h-11 rounded-xl text-xs font-black shadow-md shadow-primary/10"
+                  >
+                    {authLoading ? "กำลังดำเนินการ..." : isSignUp ? "สมัครสมาชิกคลาวด์ ✨" : "เข้าสู่ระบบคลาวด์ 🔑"}
+                  </Button>
+                  <div className="flex justify-between items-center text-[10px] font-bold text-primary px-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsSignUp(!isSignUp)}
+                      className="hover:underline"
+                    >
+                      {isSignUp ? "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สมัครสมาชิกที่นี่"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailForm(false)}
+                      className="text-muted-foreground hover:underline"
+                    >
+                      ย้อนกลับ
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  {/* Google login */}
+                  <Button
+                    onClick={handleGoogleLogin}
+                    className="w-full h-13 rounded-2xl text-md font-bold shadow-lg shadow-primary/10 hover:scale-102 transition-transform flex items-center justify-center gap-3"
+                  >
+                    {/* Pixel-Perfect Inline Google SVG G-Logo */}
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path
+                        fill="currentColor"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="currentColor"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="currentColor"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="currentColor"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      />
+                    </svg>
+                    เข้าสู่ระบบด้วย Google
+                  </Button>
 
-              {/* Offline Demo mode */}
-              <button
-                onClick={handleGuestLogin}
-                className="w-full h-12 rounded-2xl border border-border bg-background/50 hover:bg-accent text-sm font-semibold text-muted-foreground transition-all hover:scale-102 flex items-center justify-center gap-2 group"
-              >
-                ทดลองใช้งานแบบ Guest Mode (Offline)
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </button>
+                  {/* Email Login Trigger */}
+                  <Button
+                    onClick={() => setShowEmailForm(true)}
+                    variant="outline"
+                    className="w-full h-12 rounded-2xl border-primary/20 text-primary hover:bg-primary/5 text-sm font-bold transition-all hover:scale-102 flex items-center justify-center gap-2"
+                  >
+                    🔐 เข้าสู่ระบบด้วยอีเมล / รหัสผ่าน
+                  </Button>
+
+                  {/* Offline Demo mode */}
+                  <button
+                    onClick={handleGuestLogin}
+                    className="w-full h-12 rounded-2xl border border-border bg-background/50 hover:bg-accent text-sm font-semibold text-muted-foreground transition-all hover:scale-102 flex items-center justify-center gap-2 group"
+                  >
+                    ทดลองใช้งานแบบ Guest Mode (Offline)
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Bottom Disclaimer */}
