@@ -195,8 +195,29 @@ function Transactions() {
       }
     }
 
+    // Save previous state for rollback on failure
+    const previousTransactions = [...transactions];
+
+    // Create a temporary mock transaction for instant UI update
+    const mockTx: Transaction = {
+      id: "temp_" + Date.now(),
+      type: formData.type,
+      category: formData.category,
+      incomeType: selectedIncomeType || undefined,
+      amount: parseFloat(formData.amount),
+      description: formData.description || undefined,
+      date: formData.date,
+      notes: formData.notes || undefined,
+      receiptId: formData.receiptId !== "none" ? parseInt(formData.receiptId) : undefined,
+      createdAt: new Date().toISOString()
+    };
+
+    // Optimistically update UI
+    setTransactions([mockTx, ...transactions]);
+    resetForm();
+    setIsOpen(false);
+
     try {
-      setIsLoading(true);
       await apiClient.createTransaction({
         type: formData.type,
         category: formData.category,
@@ -209,11 +230,13 @@ function Transactions() {
       });
 
       toast.success("บันทึกรายการสำเร็จ! 🎉");
-      resetForm();
-      setIsOpen(false);
       await loadData();
     } catch (err) {
       console.warn("[OFFLINE_STORE] Create failed, writing to localStorage:", err);
+      
+      // Rollback optimistic update on online failure
+      setTransactions(previousTransactions);
+
       offlineStore.createTransaction({
         type: formData.type,
         category: formData.category,
@@ -225,11 +248,7 @@ function Transactions() {
         receiptId: formData.receiptId !== "none" ? parseInt(formData.receiptId) : undefined,
       });
       toast.error("บันทึกออนไลน์ไม่สำเร็จ กำลังสลับไปเก็บบันทึกบนเบราว์เซอร์");
-      resetForm();
-      setIsOpen(false);
       await loadData();
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -240,14 +259,23 @@ function Transactions() {
 
   const confirmDelete = async () => {
     if (deleteTargetId !== null) {
+      // Save state for rollback on failure
+      const previousTransactions = [...transactions];
+
+      // Optimistically remove transaction from UI
+      setTransactions(transactions.filter(t => t.id !== deleteTargetId));
+      setIsDeleteDialogOpen(false);
+
       try {
-        setIsLoading(true);
-        setIsDeleteDialogOpen(false);
         await apiClient.deleteTransaction(deleteTargetId);
         toast.success("ลบรายการสำเร็จ! 🗑️");
         await loadData();
       } catch (err) {
         console.warn("[OFFLINE_STORE] Delete failed, deleting from localStorage:", err);
+        
+        // Rollback optimistic delete
+        setTransactions(previousTransactions);
+
         if (typeof deleteTargetId === "number" || typeof deleteTargetId === "string") {
           const numId = typeof deleteTargetId === "string" ? parseInt(deleteTargetId, 10) : deleteTargetId;
           if (!isNaN(numId)) {
@@ -258,10 +286,10 @@ function Transactions() {
         await loadData();
       } finally {
         setDeleteTargetId(null);
-        setIsLoading(false);
       }
     }
   };
+
 
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editFormData, setEditFormData] = useState({
@@ -308,8 +336,31 @@ function Transactions() {
       selectedIncomeType = undefined;
     }
 
+    // Save previous state for rollback on failure
+    const previousTransactions = [...transactions];
+
+    // Optimistically update the transaction in our local state
+    const updatedTxs = transactions.map(t => {
+      if (t.id === editingTransaction.id) {
+        return {
+          ...t,
+          type: editFormData.type,
+          category: editFormData.category,
+          incomeType: selectedIncomeType || undefined,
+          amount: parseFloat(editFormData.amount),
+          description: editFormData.description || undefined,
+          date: editFormData.date,
+          notes: editFormData.notes || undefined,
+          receiptId: editFormData.receiptId !== "none" ? parseInt(editFormData.receiptId) : undefined,
+        };
+      }
+      return t;
+    });
+
+    setTransactions(updatedTxs);
+    setEditingTransaction(null);
+
     try {
-      setIsLoading(true);
       await apiClient.updateTransaction(editingTransaction.id, {
         type: editFormData.type,
         category: editFormData.category,
@@ -322,10 +373,13 @@ function Transactions() {
       });
 
       toast.success("แก้ไขรายการสำเร็จ! 🎉");
-      setEditingTransaction(null);
       await loadData();
     } catch (err) {
       console.warn("[OFFLINE_STORE] Edit failed, writing to localStorage:", err);
+      
+      // Rollback optimistic update
+      setTransactions(previousTransactions);
+
       if (typeof editingTransaction.id === "number") {
         offlineStore.updateTransaction(editingTransaction.id, {
           type: editFormData.type,
@@ -339,12 +393,10 @@ function Transactions() {
         });
       }
       toast.error("ไม่สามารถบันทึกแก้ไขออนไลน์ได้ กำลังเซฟลงเบราว์เซอร์");
-      setEditingTransaction(null);
       await loadData();
-    } finally {
-      setIsLoading(false);
     }
   };
+
 
   const parseECommerceCSV = (text: string, platform: "shopee" | "lazada" | "tiktok") => {
     const lines = text.split(/\r?\n/);

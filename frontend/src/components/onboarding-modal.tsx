@@ -207,8 +207,13 @@ export default function OnboardingModal({ isOpen, onClose, onSuccess }: Onboardi
                   transition={{ duration: 0.3 }}
                   className="space-y-6 text-center"
                 >
-                  <div className="w-16 h-16 rounded-2xl bg-primary/15 text-primary flex items-center justify-center mx-auto shadow-md">
-                    <Store className="w-8 h-8" />
+                  <div className="relative w-44 h-44 mx-auto drop-shadow-[0_10px_15px_rgba(140,102,255,0.15)]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/mascot-present.png"
+                      alt="Fillax Mascot Present"
+                      className="w-full h-full object-contain animate-pulse"
+                    />
                   </div>
                   <div className="space-y-2">
                     <h2 className="text-2xl font-black tracking-tight text-foreground">
@@ -244,8 +249,13 @@ export default function OnboardingModal({ isOpen, onClose, onSuccess }: Onboardi
                   className="space-y-6"
                 >
                   <div className="text-center space-y-2">
-                    <div className="w-12 h-12 rounded-xl bg-primary/15 text-primary flex items-center justify-center mx-auto shadow-sm mb-2">
-                      <ShoppingBag className="w-6 h-6" />
+                    <div className="relative w-36 h-36 mx-auto mb-2 drop-shadow-[0_8px_12px_rgba(140,102,255,0.12)]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src="/mascot-tongue.png"
+                        alt="Fillax Mascot Winking"
+                        className="w-full h-full object-contain hover:scale-105 transition-transform duration-300"
+                      />
                     </div>
                     <h3 className="text-xl font-black text-foreground">
                       ช่องทางหลักในการขายสินค้า 🛍️
@@ -283,8 +293,14 @@ export default function OnboardingModal({ isOpen, onClose, onSuccess }: Onboardi
                   transition={{ duration: 0.3 }}
                   className="space-y-6 text-center"
                 >
-                  <div className="w-12 h-12 rounded-xl bg-primary/15 text-primary flex items-center justify-center mx-auto shadow-sm">
-                    <TrendingUp className="w-6 h-6" />
+                  <div className="relative w-36 h-36 mx-auto mb-2 drop-shadow-[0_8px_12px_rgba(140,102,255,0.12)]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/mascot-celebrate.png"
+                      alt="Fillax Mascot Celebrate"
+                      className="w-full h-full object-contain animate-bounce"
+                      style={{ animationDuration: "3s" }}
+                    />
                   </div>
                   <div className="space-y-2">
                     <h3 className="text-xl font-black text-foreground">
@@ -333,8 +349,13 @@ export default function OnboardingModal({ isOpen, onClose, onSuccess }: Onboardi
                   transition={{ type: "spring", stiffness: 100 }}
                   className="space-y-6 text-center py-6"
                 >
-                  <div className="w-20 h-20 bg-gradient-to-tr from-violet-600 to-fuchsia-500 rounded-full flex items-center justify-center mx-auto shadow-lg animate-bounce">
-                    <Sparkles className="w-10 h-10 text-white" />
+                  <div className="relative w-48 h-48 mx-auto drop-shadow-[0_12px_20px_rgba(140,102,255,0.2)] animate-bounce">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/mascot-celebrate.png"
+                      alt="Fillax Mascot Success"
+                      className="w-full h-full object-contain"
+                    />
                   </div>
                   <div className="space-y-2">
                     <h2 className="text-3xl font-black tracking-tight text-foreground bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">

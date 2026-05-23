@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     OMISE_PUBLIC_KEY: str = ""
     OMISE_WEBHOOK_SECRET: str = ""
 
+    # Redis Cache (Optional for local development, fallback to in-memory)
+    REDIS_URL: str = ""
+
     class Config:
         env_file = (".env", "../.env")
         extra = "ignore"

@@ -14,22 +14,30 @@ from collections import defaultdict
 from fastapi import Request, HTTPException, status, UploadFile
 from typing import Dict, List, Tuple, Any
 from pydantic import BaseModel, model_validator
+import redis
+from app.core.config import settings
+
+# Initialize Redis client for shared caching and rate limiting across multi-instances
+redis_client = None
+if settings.REDIS_URL:
+    try:
+        # Simple client setup (decode_responses=True for easy string manipulation)
+        redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        redis_client.ping()
+        print("[REDIS] Connected successfully to shared cache and rate limiter server! 🟢")
+    except Exception as redis_err:
+        redis_client = None
+        print(f"[REDIS_WARNING] Redis URL was provided but server connection failed, falling back to local memory: {redis_err}")
 
 # ─── 1. ASYNCHRONOUS IN-MEMORY RATE LIMITER ──────────────────────────────────
-# Dictionary mapping client IP -> list of request timestamps
-# Fixed sliding window rate limiter
-# NOTE: This is an in-memory Rate Limiter designed for single-instance scaling.
-# If deploying multi-instance on Render/Railway, please enforce replica=1
-# or replace _request_records with a Redis-backed pipeline.
+# Dictionary mapping client IP -> list of request timestamps (Graceful in-memory fallback)
 _request_records: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
 class RateLimiter:
     """
-    High-Performance Asynchronous IP-Based Rate Limiter.
-    Zero external dependencies to prevent supply-chain security issues.
-    To scale across multi-instance:
-    1. Deploy with replica count = 1 (Single instance).
-    2. Alternatively, integrate Redis keys (e.g. redis.incr(key)) to synchronize.
+    High-Performance Sliding Window Rate Limiter.
+    Utilizes Redis Sorted Sets for multi-instance distributed environments,
+    with an automatic zero-dependency in-memory fallback.
     """
     def __init__(self, limit: int, window_seconds: int):
         self.limit = limit
@@ -40,11 +48,51 @@ class RateLimiter:
         client_ip = request.client.host if request.client else "unknown-ip"
         now = time.time()
         
-        # Filter timestamps outside the sliding window
+        # 1. Distributed Redis Sliding Window Implementation
+        if redis_client:
+            try:
+                # Key format: rate_limit:ip:endpoint
+                key = f"rate_limit:{client_ip}:{endpoint_key}"
+                
+                # Execute atomic operations via Redis pipeline
+                pipe = redis_client.pipeline()
+                # Remove timestamps older than the sliding window boundary
+                pipe.zremrangebyscore(key, 0, now - self.window_seconds)
+                # Count remaining requests in the active window
+                pipe.zcard(key)
+                # Add current request timestamp
+                pipe.zadd(key, {str(now): now})
+                # Auto-expire cache keys after window inactivity
+                pipe.expire(key, self.window_seconds * 2)
+                
+                res = pipe.execute()
+                request_count = res[1]
+                
+                if request_count >= self.limit:
+                    # Retrieve the timestamp of the oldest valid request to calculate retry duration
+                    oldest = redis_client.zrange(key, 0, 0, withscores=True)
+                    retry_after = int(self.window_seconds)
+                    if oldest:
+                        retry_after = max(1, int(self.window_seconds - (now - oldest[0][1])))
+                        
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail={
+                            "message": "Too many requests. Please slow down.",
+                            "retry_after": retry_after
+                        }
+                    )
+                return
+            except HTTPException:
+                raise
+            except Exception as e:
+                # Fall back gracefully to local memory on connection failure
+                print(f"[REDIS_RATE_LIMITER] Connection lost, falling back to local memory: {e}")
+                
+        # 2. Local In-Memory Fallback Implementation
         timestamps = _request_records[client_ip][endpoint_key]
         valid_timestamps = [t for t in timestamps if now - t < self.window_seconds]
         
-        # Check against limit
         if len(valid_timestamps) >= self.limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -54,9 +102,9 @@ class RateLimiter:
                 }
             )
             
-        # Add current timestamp
         valid_timestamps.append(now)
         _request_records[client_ip][endpoint_key] = valid_timestamps
+
 
 
 # Rate-limiting instances for expensive AI/OCR endpoints

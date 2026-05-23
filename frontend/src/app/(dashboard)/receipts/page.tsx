@@ -240,22 +240,55 @@ export default function Receipts() {
     e.preventDefault();
     if (!editingReceipt) return;
 
-    updateReceipt(editingReceipt.id, {
-      year: editFormData.year,
-      month: editFormData.month,
-      day: editFormData.day,
-      vendor: editFormData.vendor,
-      amount: editFormData.amount,
-      description: editFormData.description,
-      sellerTaxId: editFormData.sellerTaxId,
-      isDbdVerified: editFormData.isDbdVerified,
-      dbdCompanyName: editFormData.dbdCompanyName,
+    // Save previous state for rollback
+    const previousReceipts = [...receipts];
+
+    // Optimistically update receipt in our local state
+    const updatedReceipts = receipts.map(r => {
+      if (r.id === editingReceipt.id) {
+        return {
+          ...r,
+          year: editFormData.year,
+          month: editFormData.month,
+          day: editFormData.day,
+          vendor: editFormData.vendor,
+          amount: editFormData.amount,
+          description: editFormData.description,
+          sellerTaxId: editFormData.sellerTaxId,
+          isDbdVerified: editFormData.isDbdVerified,
+          dbdCompanyName: editFormData.dbdCompanyName,
+        };
+      }
+      return r;
     });
 
+    setReceipts(updatedReceipts);
     setEditingReceipt(null);
-    loadReceipts();
-    toast.success("แก้ไขข้อมูลใบเสร็จสำเร็จ! 🎉");
+
+    try {
+      updateReceipt(editingReceipt.id, {
+        year: editFormData.year,
+        month: editFormData.month,
+        day: editFormData.day,
+        vendor: editFormData.vendor,
+        amount: editFormData.amount,
+        description: editFormData.description,
+        sellerTaxId: editFormData.sellerTaxId,
+        isDbdVerified: editFormData.isDbdVerified,
+        dbdCompanyName: editFormData.dbdCompanyName,
+      });
+
+      toast.success("แก้ไขข้อมูลใบเสร็จสำเร็จ! 🎉");
+      loadReceipts();
+    } catch (err) {
+      console.error(err);
+      // Rollback
+      setReceipts(previousReceipts);
+      toast.error("เกิดข้อผิดพลาดในการแก้ไขข้อมูลใบเสร็จ");
+      loadReceipts();
+    }
   };
+
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -417,10 +450,38 @@ export default function Receipts() {
     }
 
     setUploading(true);
-    try {
-      const mockUrl = URL.createObjectURL(selectedFile);
+    
+    // Save previous state for rollback on failure
+    const previousReceipts = [...receipts];
+    
+    const mockUrl = URL.createObjectURL(selectedFile);
+    const mockReceipt: Receipt = {
+      id: Date.now(), // Temp numeric ID for instant UI updates
+      fileName: selectedFile.name,
+      fileUrl: mockUrl,
+      fileKey: `receipts/${Date.now()}-${selectedFile.name}`,
+      mimeType: selectedFile.type,
+      fileSize: selectedFile.size,
+      uploadDate: new Date().toISOString(),
+      year: formData.year,
+      month: formData.month,
+      day: formData.day,
+      description: formData.description,
+      amount: formData.amount,
+      vendor: formData.vendor,
+      sellerTaxId: formData.sellerTaxId,
+      isDbdVerified: formData.isDbdVerified,
+      dbdCompanyName: formData.dbdCompanyName,
+      createdAt: new Date().toISOString()
+    };
 
-      createReceipt({
+    // Optimistically update the UI instantly
+    setReceipts([...receipts, mockReceipt]);
+    resetForm();
+    setIsOpen(false);
+
+    try {
+      const created = createReceipt({
         fileName: selectedFile.name,
         fileUrl: mockUrl,
         fileKey: `receipts/${Date.now()}-${selectedFile.name}`,
@@ -438,12 +499,14 @@ export default function Receipts() {
         dbdCompanyName: formData.dbdCompanyName,
       });
 
-      toast.success("อัปโหลดใบเสร็จสำเร็จ");
-      loadReceipts();
-      resetForm();
-      setIsOpen(false);
-    } catch {
-      toast.error("เกิดข้อผิดพลาดในการอัปโหลด");
+      toast.success("อัปโหลดและบันทึกใบเสร็จสำเร็จ! 🎉");
+      // Replace the temp mock item with the fully registered one to secure its real ID
+      setReceipts(prev => prev.map(r => r.id === mockReceipt.id ? created : r));
+    } catch (err) {
+      console.error("Failed to create receipt:", err);
+      // Rollback to previous state on failure
+      setReceipts(previousReceipts);
+      toast.error("เกิดข้อผิดพลาดในการบันทึกเอกสารใบเสร็จ");
     } finally {
       setUploading(false);
     }
@@ -456,11 +519,24 @@ export default function Receipts() {
 
   const confirmDelete = () => {
     if (deleteTargetId !== null) {
-      deleteReceipt(deleteTargetId);
-      toast.success("ลบใบเสร็จสำเร็จ");
-      loadReceipts();
-      setDeleteTargetId(null);
+      // Save previous state for rollback on failure
+      const previousReceipts = [...receipts];
+
+      // Optimistically remove from state instantly
+      setReceipts(receipts.filter((r) => r.id !== deleteTargetId));
       setIsDeleteDialogOpen(false);
+
+      try {
+        deleteReceipt(deleteTargetId);
+        toast.success("ลบใบเสร็จสำเร็จ! 🗑️");
+      } catch (err) {
+        console.error("Failed to delete receipt:", err);
+        // Rollback to previous state on failure
+        setReceipts(previousReceipts);
+        toast.error("เกิดข้อผิดพลาดในการลบเอกสารใบเสร็จ");
+      } finally {
+        setDeleteTargetId(null);
+      }
     }
   };
 

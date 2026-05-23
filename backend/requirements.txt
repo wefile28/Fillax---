@@ -31,3 +31,7 @@ omise>=0.1.1
 
 # Email validation (Pydantic EmailStr validation)
 email-validator>=2.0.0
+
+# Redis Cache Integration
+redis>=5.0.0
+

@@ -1,6 +1,8 @@
 import re
+import json
 from datetime import datetime
 from typing import Dict, Any, Tuple, Optional
+from app.core.security import redis_client
 
 # DBD Lookup Dictionary for premium merchants
 DBD_DICTIONARY = {
@@ -32,7 +34,7 @@ THAI_MONTHS = {
 
 def verify_thai_tax_id(tax_id: Any) -> Tuple[bool, Optional[str]]:
     """
-    Verify Thai 13-digit Tax ID using Modulo-11 checksum.
+    Verify Thai 13-digit Tax ID using Modulo-11 checksum with Redis Caching.
     Returns: (is_valid, dbd_company_name)
     """
     if not tax_id:
@@ -42,18 +44,43 @@ def verify_thai_tax_id(tax_id: Any) -> Tuple[bool, Optional[str]]:
     if len(cleaned) != 13:
         return False, None
         
+    # Query Redis cache first if available
+    cache_key = f"dbd:{cleaned}"
+    if redis_client:
+        try:
+            cached_val = redis_client.get(cache_key)
+            if cached_val:
+                res = json.loads(cached_val)
+                return res.get("is_valid", False), res.get("name")
+        except Exception as cache_err:
+            print(f"[REDIS_VALIDATION_ERROR] Failed to query cache: {cache_err}")
+        
     try:
         digits = [int(c) for c in cleaned]
         total = sum(digits[i] * (13 - i) for i in range(12))
         check_digit = (11 - (total % 11)) % 10
         
-        if digits[12] == check_digit:
-            # Match company name from dictionary, or construct a clean fallback
+        is_valid = digits[12] == check_digit
+        matched_name = None
+        
+        if is_valid:
             matched_name = DBD_DICTIONARY.get(cleaned)
-            return True, matched_name
-        return False, None
+            
+        # Store result in Redis cache with 7-day TTL (604800 seconds) if available
+        if redis_client:
+            try:
+                redis_client.setex(
+                    cache_key,
+                    604800,
+                    json.dumps({"is_valid": is_valid, "name": matched_name})
+                )
+            except Exception as cache_err:
+                print(f"[REDIS_VALIDATION_ERROR] Failed to write to cache: {cache_err}")
+                
+        return is_valid, matched_name
     except Exception:
         return False, None
+
 
 def parse_thai_date(date_str: Any) -> Optional[str]:
     """
