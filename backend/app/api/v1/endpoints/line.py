@@ -2,6 +2,7 @@ import hmac
 import hashlib
 import base64
 import json
+import uuid
 import httpx
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, Header, HTTPException, status, BackgroundTasks
