@@ -239,48 +239,56 @@ async def handle_image_upload(line_user_id: str, message_id: str, reply_token: s
         file_url = f"https://fillax-storage.supabase.co/storage/v1/object/public/receipts/{file_name}"
         
         # Call Anthropic Claude Visual AI to classify if it's a Bank Transfer Slip or Receipt
-        headers = {
-            "x-api-key": settings.ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-        encoded_image = base64.b64encode(img_bytes).decode("utf-8")
-        
-        classification_prompt = """
-        Analyze this image. Is it a Bank Transfer Slip (สลิปโอนเงินธนาคารของไทยที่มี QR code หรือเขียนสลิปโอนเงิน) or a regular Purchase Receipt/Invoice (ใบเสร็จรับเงิน/ใบกำกับภาษีซื้อของค่าใช้จ่าย)?
-        Reply with a single word: either "SLIP" or "RECEIPT".
-        """
-        
-        payload = {
-            "model": "claude-3-5-sonnet-latest",
-            "max_tokens": 10,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": encoded_image
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": classification_prompt
-                        }
-                    ]
-                }
-            ]
-        }
-
-        async with httpx.AsyncClient() as client:
-            ai_res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
-            if ai_res.status_code != 200:
-                raise HTTPException(status_code=502, detail="Anthropic classifier request failed")
+        if not settings.ANTHROPIC_API_KEY:
+            # --- MOCK DEMO SIMULATION MODE ---
+            import random
+            if "slip" in file_name.lower():
+                ai_class = "SLIP"
+            else:
+                ai_class = random.choice(["SLIP", "RECEIPT"])
+        else:
+            headers = {
+                "x-api-key": settings.ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            }
+            encoded_image = base64.b64encode(img_bytes).decode("utf-8")
             
-            ai_class = ai_res.json()["content"][0]["text"].strip().upper()
+            classification_prompt = """
+            Analyze this image. Is it a Bank Transfer Slip (สลิปโอนเงินธนาคารของไทยที่มี QR code หรือเขียนสลิปโอนเงิน) or a regular Purchase Receipt/Invoice (ใบเสร็จรับเงิน/ใบกำกับภาษีซื้อของค่าใช้จ่าย)?
+            Reply with a single word: either "SLIP" or "RECEIPT".
+            """
+            
+            payload = {
+                "model": "claude-3-5-sonnet-latest",
+                "max_tokens": 10,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": encoded_image
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": classification_prompt
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            async with httpx.AsyncClient() as client:
+                ai_res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+                if ai_res.status_code != 200:
+                    raise HTTPException(status_code=502, detail="Anthropic classifier request failed")
+                
+                ai_class = ai_res.json()["content"][0]["text"].strip().upper()
 
         if "SLIP" in ai_class:
             # IT IS A BANK TRANSFER SLIP!
@@ -325,63 +333,97 @@ async def process_receipt_image(img_bytes: bytes, file_url: str, user_id: str, r
     """Runs OCR extraction for receipts, verifies math & tax IDs, and sends Flex Message review."""
     encoded_image = base64.b64encode(img_bytes).decode("utf-8")
     
-    prompt = """
-    วิเคราะห์ใบเสร็จนี้และดึงข้อมูลสรุปเพื่อลงบัญชีและคำนวณภาษีแม่ค้าออนไลน์
-    ส่งผลลัพธ์กลับมาเป็น JSON เปล่าๆ ห้ามมีคำอธิบายเพิ่มเติม ห้ามมี ```json markdown wrapper
-    รูปแบบโครงสร้าง JSON ที่ต้องส่งกลับมา:
-    {
-      "vendor": "ชื่อร้านค้า/ผู้ให้บริการ หรือ 'ไม่ระบุ' หากหาไม่พบ",
-      "amount": ยอดเงินสุทธิรวม (float หรือ null หากหาไม่พบ),
-      "vat": ยอดภาษีมูลค่าเพิ่ม (float หรือ null หากหาไม่พบ),
-      "date": "วันที่ออกใบเสร็จ (รูปแบบ YYYY-MM-DD เช่น 2026-05-17 หรือ null)",
-      "category": "หมวดหมู่ภาษีที่เหมาะสมที่สุด (เช่น ต้นทุนสินค้า/วัตถุดิบ, ค่าเช่าสำนักงาน/หน้าร้าน, ค่าขนส่งและเดินทางธุรกิจ, วัสดุสิ้นเปลือง/เครื่องเขียน, รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ)",
-      "description": "คำอธิบายหรือรายการของที่ซื้อคร่าวๆ",
-      "seller_tax_id": "เลขประจำตัวผู้เสียภาษีอากร 13 หลักของผู้ขาย (ระบุเป็นตัวเลขเท่านั้น หรือ null)"
-    }
-    """
-
-    payload = {
-        "model": "claude-3-5-sonnet-latest",
-        "max_tokens": 800,
-        "messages": [
+    if not settings.ANTHROPIC_API_KEY:
+        # --- MOCK DEMO SIMULATION MODE ---
+        import random
+        mock_receipts = [
             {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": encoded_image
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt
-                    }
-                ]
+                "vendor": "7-Eleven",
+                "amount": 120.50,
+                "vat": 7.88,
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "category": "ต้นทุนสินค้า/วัตถุดิบ",
+                "description": "ซื้อบะหมี่กึ่งสำเร็จรูปและน้ำดื่ม (โหมดจำลอง LINE Bot)",
+                "seller_tax_id": "0107536000231"
+            },
+            {
+                "vendor": "Cafe Amazon",
+                "amount": 185.00,
+                "vat": 12.10,
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+                "description": "เครื่องดื่มต้อนรับลูกค้า (โหมดจำลอง LINE Bot)",
+                "seller_tax_id": "0107561000242"
+            },
+            {
+                "vendor": "Lotus's",
+                "amount": 1450.00,
+                "vat": 94.86,
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "category": "วัสดุสิ้นเปลือง/เครื่องเขียน",
+                "description": "กระดาษ A4 และอุปกรณ์สำนักงาน (โหมดจำลอง LINE Bot)",
+                "seller_tax_id": "0105536092641"
             }
         ]
-    }
+        data = random.choice(mock_receipts)
+    else:
+        prompt = """
+        วิเคราะห์ใบเสร็จนี้และดึงข้อมูลสรุปเพื่อลงบัญชีและคำนวณภาษีแม่ค้าออนไลน์
+        ส่งผลลัพธ์กลับมาเป็น JSON เปล่าๆ ห้ามมีคำอธิบายเพิ่มเติม ห้ามมี ```json markdown wrapper
+        รูปแบบโครงสร้าง JSON ที่ต้องส่งกลับมา:
+        {
+          "vendor": "ชื่อร้านค้า/ผู้ให้บริการ หรือ 'ไม่ระบุ' หากหาไม่พบ",
+          "amount": ยอดเงินสุทธิรวม (float หรือ null หากหาไม่พบ),
+          "vat": ยอดภาษีมูลค่าเพิ่ม (float หรือ null หากหาไม่พบ),
+          "date": "วันที่ออกใบเสร็จ (รูปแบบ YYYY-MM-DD เช่น 2026-05-17 หรือ null)",
+          "category": "หมวดหมู่ภาษีที่เหมาะสมที่สุด (เช่น ต้นทุนสินค้า/วัตถุดิบ, ค่าเช่าสำนักงาน/หน้าร้าน, ค่าขนส่งและเดินทางธุรกิจ, วัสดุสิ้นเปลือง/เครื่องเขียน, รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ)",
+          "description": "คำอธิบายหรือรายการของที่ซื้อคร่าวๆ",
+          "seller_tax_id": "เลขประจำตัวผู้เสียภาษีอากร 13 หลักของผู้ขาย (ระบุเป็นตัวเลขเท่านั้น หรือ null)"
+        }
+        """
 
-    headers = {
-        "x-api-key": settings.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-    }
+        payload = {
+            "model": "claude-3-5-sonnet-latest",
+            "max_tokens": 800,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": encoded_image
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        }
 
-    async with httpx.AsyncClient() as client:
-        ai_res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
-        parsed_text = ai_res.json()["content"][0]["text"].strip()
+        headers = {
+            "x-api-key": settings.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
 
-    # Clean JSON
-    if parsed_text.startswith("```"):
-        parsed_text = parsed_text.split("\n", 1)[1]
-        if parsed_text.endswith("```"):
-            parsed_text = parsed_text.rsplit("\n", 1)[0]
-        parsed_text = parsed_text.replace("json", "", 1).strip()
+        async with httpx.AsyncClient() as client:
+            ai_res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+            parsed_text = ai_res.json()["content"][0]["text"].strip()
 
-    data = json.loads(parsed_text)
+        # Clean JSON
+        if parsed_text.startswith("```"):
+            parsed_text = parsed_text.split("\n", 1)[1]
+            if parsed_text.endswith("```"):
+                parsed_text = parsed_text.rsplit("\n", 1)[0]
+            parsed_text = parsed_text.replace("json", "", 1).strip()
+
+        data = json.loads(parsed_text)
 
     # Stage 2: Verification Engine
     vendor = data.get("vendor", "ไม่ระบุ")
@@ -568,59 +610,69 @@ async def process_bank_slip_image(img_bytes: bytes, is_income: bool, user_id: st
     """OCR parsers for Bank Slips, extracts amounts and sends checking message."""
     encoded_image = base64.b64encode(img_bytes).decode("utf-8")
     
-    prompt = """
-    วิเคราะห์ภาพสลิปโอนเงินธนาคารนี้และดึงข้อมูลสรุปทางบัญชี
-    ส่งผลลัพธ์กลับมาเป็น JSON เปล่าๆ ห้ามมีคำอธิบายเพิ่มเติม ห้ามมี ```json markdown wrapper
-    รูปแบบโครงสร้าง JSON:
-    {
-      "amount": ยอดเงินโอนโอนสุทธิ (float),
-      "date": "วันที่ทำการโอน (รูปแบบ YYYY-MM-DD หรือ null)",
-      "bank_name": "ธนาคารปลายทาง/ผู้โอน (เช่น กสิกรไทย, ไทยพาณิชย์) หรือ null",
-      "ref_id": "เลขที่อ้างอิงธุรกรรมหรือเลขที่สลิป (เช่น 011322xxxx หรือ null)"
-    }
-    """
+    if not settings.ANTHROPIC_API_KEY:
+        # --- MOCK DEMO SIMULATION MODE ---
+        import random
+        data = {
+            "amount": float(random.randint(150, 4500)),
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "bank_name": random.choice(["กสิกรไทย", "ไทยพาณิชย์", "กรุงไทย", "กรุงเทพ"]),
+            "ref_id": f"MOCK_LINE_{uuid.uuid4().hex[:10].upper()}"
+        }
+    else:
+        prompt = """
+        วิเคราะห์ภาพสลิปโอนเงินธนาคารนี้และดึงข้อมูลสรุปทางบัญชี
+        ส่งผลลัพธ์กลับมาเป็น JSON เปล่าๆ ห้ามมีคำอธิบายเพิ่มเติม ห้ามมี ```json markdown wrapper
+        รูปแบบโครงสร้าง JSON:
+        {
+          "amount": ยอดเงินโอนโอนสุทธิ (float),
+          "date": "วันที่ทำการโอน (รูปแบบ YYYY-MM-DD หรือ null)",
+          "bank_name": "ธนาคารปลายทาง/ผู้โอน (เช่น กสิกรไทย, ไทยพาณิชย์) หรือ null",
+          "ref_id": "เลขที่อ้างอิงธุรกรรมหรือเลขที่สลิป (เช่น 011322xxxx หรือ null)"
+        }
+        """
 
-    payload = {
-        "model": "claude-3-5-sonnet-latest",
-        "max_tokens": 500,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": encoded_image
+        payload = {
+            "model": "claude-3-5-sonnet-latest",
+            "max_tokens": 500,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": encoded_image
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
                         }
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt
-                    }
-                ]
-            }
-        ]
-    }
+                    ]
+                }
+            ]
+        }
 
-    headers = {
-        "x-api-key": settings.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-    }
+        headers = {
+            "x-api-key": settings.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
 
-    async with httpx.AsyncClient() as client:
-        ai_res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
-        parsed_text = ai_res.json()["content"][0]["text"].strip()
+        async with httpx.AsyncClient() as client:
+            ai_res = await client.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+            parsed_text = ai_res.json()["content"][0]["text"].strip()
 
-    if parsed_text.startswith("```"):
-        parsed_text = parsed_text.split("\n", 1)[1]
-        if parsed_text.endswith("```"):
-            parsed_text = parsed_text.rsplit("\n", 1)[0]
-        parsed_text = parsed_text.replace("json", "", 1).strip()
+        if parsed_text.startswith("```"):
+            parsed_text = parsed_text.split("\n", 1)[1]
+            if parsed_text.endswith("```"):
+                parsed_text = parsed_text.rsplit("\n", 1)[0]
+            parsed_text = parsed_text.replace("json", "", 1).strip()
 
-    data = json.loads(parsed_text)
+        data = json.loads(parsed_text)
 
     amount = data.get("amount") or 0.0
     raw_date = data.get("date")

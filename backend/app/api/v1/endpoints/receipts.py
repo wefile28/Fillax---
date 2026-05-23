@@ -84,60 +84,104 @@ async def async_process_ocr(
 }}
 """
         
-        if is_pdf:
-            if not extracted_text.strip():
-                raise ValueError("could not extract text from PDF. Ensure it is not an image-only scanned PDF.")
-                
-            response = client.messages.create(
-                model="claude-3-5-sonnet-latest",
-                max_tokens=800,
-                system="You are an expert receipt extraction assistant. You parse raw text and format it into clean JSON.",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"{prompt_instructions}\n\nข้อความที่สกัดจาก PDF:\n{extracted_text}"
-                    }
-                ]
-            )
+        if not client:
+            # --- MOCK DEMO SIMULATION MODE ---
+            import random
+            from datetime import datetime, timezone
+            import asyncio
+            
+            mock_receipts = [
+                {
+                    "vendor": "7-Eleven",
+                    "amount": 120.50,
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "category": "ต้นทุนสินค้า/วัตถุดิบ",
+                    "description": "ซื้อบะหมี่กึ่งสำเร็จรูปและน้ำดื่มสำหรับแจกจ่ายพนักงาน (โหมดจำลองพิเศษเนื่องจากไม่ได้ใส่ ANTHROPIC_API_KEY)",
+                    "seller_tax_id": "0107536000231"
+                },
+                {
+                    "vendor": "Cafe Amazon",
+                    "amount": 185.00,
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+                    "description": "กาแฟและชานมสำหรับรับรองลูกค้าที่เข้ามาติดต่อธุรกิจ (โหมดจำลองพิเศษเนื่องจากไม่ได้ใส่ ANTHROPIC_API_KEY)",
+                    "seller_tax_id": "0107561000242"
+                },
+                {
+                    "vendor": "Lotus's",
+                    "amount": 1450.00,
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "category": "วัสดุสิ้นเปลือง/เครื่องเขียน",
+                    "description": "กระดาษ A4 สองกล่อง และปากกาไวท์บอร์ดสำหรับห้องประชุม (โหมดจำลองพิเศษเนื่องจากไม่ได้ใส่ ANTHROPIC_API_KEY)",
+                    "seller_tax_id": "0105536092641"
+                },
+                {
+                    "vendor": "TrueMove H",
+                    "amount": 855.00,
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "category": "ค่าสาธารณูปโภค (น้ำ, ไฟ, เน็ต)",
+                    "description": "ชำระค่าบริการอินเทอร์เน็ตความเร็วสูงของสำนักงานใหญ่ประจำเดือน (โหมดจำลองพิเศษเนื่องจากไม่ได้ใส่ ANTHROPIC_API_KEY)",
+                    "seller_tax_id": "0107536000028"
+                }
+            ]
+            
+            parsed_data = random.choice(mock_receipts)
+            await asyncio.sleep(1.0)
         else:
-            # Image Base64 vision prompting
-            encoded_image = base64.b64encode(content).decode("utf-8")
-            response = client.messages.create(
-                model="claude-3-5-sonnet-latest",
-                max_tokens=800,
-                system="You are a state-of-the-art visual receipt OCR extraction assistant. You analyze receipt images and format them into clean JSON.",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": content_type if content_type in ["image/jpeg", "image/png", "image/gif", "image/webp"] else "image/jpeg",
-                                    "data": encoded_image
+            if is_pdf:
+                if not extracted_text.strip():
+                    raise ValueError("could not extract text from PDF. Ensure it is not an image-only scanned PDF.")
+                    
+                response = client.messages.create(
+                    model="claude-3-5-sonnet-latest",
+                    max_tokens=800,
+                    system="You are an expert receipt extraction assistant. You parse raw text and format it into clean JSON.",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"{prompt_instructions}\n\nข้อความที่สกัดจาก PDF:\n{extracted_text}"
+                        }
+                    ]
+                )
+            else:
+                # Image Base64 vision prompting
+                encoded_image = base64.b64encode(content).decode("utf-8")
+                response = client.messages.create(
+                    model="claude-3-5-sonnet-latest",
+                    max_tokens=800,
+                    system="You are a state-of-the-art visual receipt OCR extraction assistant. You analyze receipt images and format them into clean JSON.",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": content_type if content_type in ["image/jpeg", "image/png", "image/gif", "image/webp"] else "image/jpeg",
+                                        "data": encoded_image
+                                    }
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt_instructions
                                 }
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt_instructions
-                            }
-                        ]
-                    }
-                ]
-            )
+                            ]
+                        }
+                    ]
+                )
+                
+            # 3. Clean and parse JSON response
+            result_text = response.content[0].text.strip()
             
-        # 3. Clean and parse JSON response
-        result_text = response.content[0].text.strip()
-        
-        # Strip markdown codes blocks if model returned them despite system prompt
-        if result_text.startswith("```"):
-            result_text = result_text.split("\n", 1)[1]
-            if result_text.endswith("```"):
-                result_text = result_text.rsplit("\n", 1)[0]
-            result_text = result_text.replace("json", "", 1).strip()
-            
-        parsed_data = json.loads(result_text)
+            # Strip markdown codes blocks if model returned them despite system prompt
+            if result_text.startswith("```"):
+                result_text = result_text.split("\n", 1)[1]
+                if result_text.endswith("```"):
+                    result_text = result_text.rsplit("\n", 1)[0]
+                result_text = result_text.replace("json", "", 1).strip()
+                
+            parsed_data = json.loads(result_text)
         
         # Extract and validate Thai Tax ID
         seller_tax_id = parsed_data.get("seller_tax_id")
@@ -295,12 +339,6 @@ async def scan_receipt(
     # 3. Strict MIME and File size validation (max 10MB)
     await validate_uploaded_file(file)
     
-    if not client:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI OCR scanning service is currently unavailable. Please verify API key."
-        )
-        
     content = await file.read()
     content_type = file.content_type or ""
     

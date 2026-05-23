@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: str
 
     # Anthropic (Required for AI assistant)
-    ANTHROPIC_API_KEY: str
+    ANTHROPIC_API_KEY: str = ""
 
     # LINE
     LINE_CHANNEL_ACCESS_TOKEN: str = ""
