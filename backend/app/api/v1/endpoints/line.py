@@ -151,20 +151,35 @@ async def handle_text_message(line_user_id: str, text: str, reply_token: str):
     
     # Intercept Status Commands
     if text.strip() in ["เช็คสถานะ", "สถานะ", "status", "เช็คระบบ", "ตรวจระบบ"]:
-        profile_res = supabase.table("line_profiles").select("user_id, display_name").eq("line_user_id", line_user_id).execute()
-        if profile_res.data:
-            user_id = profile_res.data[0]["user_id"]
-            display_name = profile_res.data[0]["display_name"] or "ผู้ใช้ Fillax"
-            
-            # Fetch plan and shop_name
-            user_prof = supabase.table("profiles").select("plan, shop_name").eq("id", user_id).execute()
-            plan = "free"
-            shop_name = None
-            if user_prof.data:
-                plan = user_prof.data[0].get("plan", "free")
-                shop_name = user_prof.data[0].get("shop_name")
+        try:
+            profile_res = supabase.table("line_profiles").select("user_id, display_name").eq("line_user_id", line_user_id).execute()
+            if profile_res.data:
+                user_id = profile_res.data[0]["user_id"]
+                display_name = profile_res.data[0]["display_name"] or "ผู้ใช้ Fillax"
                 
-            await send_status_card(reply_token, display_name, plan, shop_name)
+                # Fetch plan and shop_name
+                try:
+                    user_prof = supabase.table("profiles").select("plan, shop_name").eq("id", user_id).execute()
+                    plan = "free"
+                    shop_name = None
+                    if user_prof.data:
+                        plan = user_prof.data[0].get("plan", "free")
+                        shop_name = user_prof.data[0].get("shop_name")
+                except Exception as db_err:
+                    print(f"Error fetching profiles in status card: {db_err}")
+                    plan = "free"
+                    shop_name = None
+                    
+                await send_status_card(reply_token, display_name, plan, shop_name)
+                return
+            else:
+                # Not paired yet
+                reply_text = "🤖 คุณยังไม่ได้ทำการเชื่อมบัญชีกับ Fillax บนเว็บครับ!\n\nกรุณาพิมพ์รหัสเชื่อมต่อ 6 หลัก (Magic Pairing Code) ที่คุณได้รับจากเมนูตั้งค่าบนหน้าเว็บมาหาเราก่อน เพื่อตรวจสอบข้อมูลและเช็คสถานะได้ทันที"
+                await send_line_reply(reply_token, [{"type": "text", "text": reply_text}])
+                return
+        except Exception as e:
+            print(f"Error executing status command: {e}")
+            await send_line_reply(reply_token, [{"type": "text", "text": "❌ เกิดข้อผิดพลาดในการตรวจสอบสถานะผ่าน LINE บอท กรุณาลองใหม่อีกครั้ง หรือเช็คข้อมูลผ่านหน้าเว็บบอร์ดหลักครับ"}])
             return
 
     # 1. Check if it fits the pairing format
