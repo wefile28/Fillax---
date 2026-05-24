@@ -43,6 +43,8 @@ def get_me(current_user: Any = Depends(get_current_user)):
             )
         return insert_res.data[0]
         
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -71,6 +73,8 @@ def update_profile(
             
         return res.data[0]
         
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

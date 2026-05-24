@@ -61,6 +61,8 @@ def create_transaction(
                 detail="Failed to record transaction."
             )
         return res.data[0]
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -89,6 +91,8 @@ def update_transaction(
                 detail="Transaction not found or unauthorized."
             )
         return res.data[0]
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -111,6 +115,8 @@ def delete_transaction(
                 detail="Transaction not found or unauthorized."
             )
         return None
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -119,13 +125,16 @@ def delete_transaction(
 
 @router.get("/summary")
 def get_financial_summary(
-    year: int = Query(2026),
+    year: Optional[int] = Query(None),
     current_user: Any = Depends(get_current_user)
 ):
     """
     Get financial summary analytics (Total Income, Total Expenses, Net Income, Channel Breakdowns, and Category Breakdown).
     This serves as the dashboard's analytics center.
     """
+    if year is None:
+        from datetime import datetime
+        year = datetime.now().year
     try:
         # Query all transactions for this user for the specified year
         res = supabase.table("transactions").select("*").eq("user_id", current_user.id).gte("date", f"{year}-01-01").lte("date", f"{year}-12-31").execute()

@@ -126,7 +126,7 @@ export const apiClient = {
       const body: any = {};
       if (data.date) body.date = data.date;
       if (data.description) body.name = data.description;
-      if (data.amount) body.amount = data.amount;
+      if (data.amount !== undefined) body.amount = data.amount;
       if (data.type) body.type = data.type;
       if (data.category) body.category = data.category;
       if (data.notes !== undefined) body.note = data.notes;

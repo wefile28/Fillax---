@@ -3,11 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Sparkles, 
-  Store, 
   ChevronRight, 
-  TrendingUp, 
-  ShoppingBag,
   ArrowLeft
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";

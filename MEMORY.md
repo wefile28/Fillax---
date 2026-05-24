@@ -4,7 +4,7 @@
 - **Goal**: Migrate the Tax Accounting Assistant (Fillax) to a standalone Next.js frontend, backed by a robust FastAPI API connected to Supabase.
 - **Stack (Frontend)**: Next.js 16.2.6 (App Router), Tailwind CSS v4 (OKLCH with explicit Hex fallback mapping), LocalStorage (MVP) shifting to Supabase syncing.
 - **Stack (Backend)**: FastAPI (0.111.0), Supabase (2.4.2), Python 3.14, Claude 3.5 Sonnet (Anthropic 0.28.0), PyMuPDF (1.27.2) / pdfplumber.
-- **Status**: Frontend migration completed successfully. Backend core completely built, robustly validated. Elite Security Shield deployed globally (intercepting & blocking SQLi/XSS/Path Traversal threats via global WAF middleware, auto-sanitizing all incoming string fields via SafeBaseModel, and masking outbound PII), with 35/35 unit and integration tests passing perfectly. Production build succeeds flawlessly.
+- **Status**: Standalone Next.js frontend fully integrated with live FastAPI endpoints. Elite Security Shield, DBD verification, Onboarding system, and Setup Progress Widgets deployed successfully. Production-ready payment gateways and slip verification pipelines fully hardened on this turn: atomic `payment_claims` db locks, swaped execution order, secure webhook validators, and free OCR quota exclusions are 100% active, with 38/38 backend tests passing perfectly and Next.js static build completing flawlessly with zero errors.
 
 ## Architecture
 - **Routing (Frontend)**: Next.js App Router with Route Groups `(dashboard)`.
@@ -143,6 +143,14 @@
 - [x] Develop GET /api/v1/auth/dbd/lookup backend API endpoint to calculate juristic tax ID validation (Modulo-11) and search DBD_DICTIONARY details.
 - [x] Design a premium glassmorphic "ดึงข้อมูลจาก DBD 🏢" button beside the Tax ID input in Next.js settings, auto-enriching business details dynamically via live API or Guest simulated flow.
 - [x] Verify complete test suite (38/38 passed) and Next.js Turbopack production build with 100% success and zero compilation errors.
+- [x] Fix float `flex` values (`2.2` and `3.8`) inside `send_status_card` in `line.py` to integers (`2` and `4`) to prevent silent LINE API gateway payload validation rejections.
+- [x] Implement database-level atomic lock table `payment_claims` with `ref_id UNIQUE` and `file_hash UNIQUE` to stop race conditions completely.
+- [x] Swap execution order in `/verify-slip` to reserve locks in `payment_claims` and `receipts` before updating profile plan.
+- [x] Implement robust rollback logic to release reserved claim and receipt records if profile upgrade crashes.
+- [x] Exclude monthly subscription slip receipts from counting against the user's free monthly AI OCR quota.
+- [x] Implement strict server-side webhook validators (validating plan, THB currency, and correct amount in satangs).
+- [x] Secure client-side Pro subscription elevation in Next.js to trigger only upon successfully verified direct success API responses.
+- [x] Correct indentation syntax error in `ai.py` and verify all 38 pytest backend tests pass cleanly.
 
 
 

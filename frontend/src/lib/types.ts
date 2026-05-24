@@ -23,7 +23,7 @@ export interface Allowance {
 }
 
 export interface Receipt {
-  id: number;
+  id: number | string;
   fileName: string;
   fileUrl: string;
   fileKey: string;

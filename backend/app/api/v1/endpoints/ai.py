@@ -74,36 +74,34 @@ async def chat(
         )
 
     try:
-        # 1. Query real financial data for contextual AI response
+        # 1. Initialize safe default values (P1 profile-less fix)
+        user_plan = "free"
+        active_channels = []
         ytd_income = 0.0
         ytd_expense = 0.0
-        active_channels = []
         allowance_count = 0
         
-        # Get profiles info
+        # Query profile info
         prof_res = supabase.table("profiles").select("*").eq("id", current_user.id).execute()
         if prof_res.data and len(prof_res.data) > 0:
             profile = prof_res.data[0]
             active_channels = profile.get("shop_channels") or []
-            
-            # Enforce monthly free quota if user is not Pro/Agency
             user_plan = profile.get("plan", "free")
-            if user_plan not in ["pro", "agency"]:
-                from datetime import datetime, timezone
-                now = datetime.now(timezone.utc)
-                month_key = f"{now.year}-{now.month:02d}"
-                
-                user_id_str = str(current_user.id)
-                current_chats = _user_monthly_chats[user_id_str][month_key]
-                if current_chats >= 5:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="AI Tax Assistant chat quota (5 questions per month) exceeded. Please upgrade to Pro."
-                    )
-                
-                # Increment quota count for this user
-                _user_monthly_chats[user_id_str][month_key] += 1
             
+        # Enforce monthly free quota if user is not Pro/Agency (P1 logic moved out of profile-check)
+        if user_plan not in ["pro", "agency"]:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            month_key = f"{now.year}-{now.month:02d}"
+            
+            user_id_str = str(current_user.id)
+            current_chats = _user_monthly_chats[user_id_str][month_key]
+            if current_chats >= 5:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="AI Tax Assistant chat quota (5 questions per month) exceeded. Please upgrade to Pro."
+                )
+                
         # Get YTD transaction summary
         tx_res = supabase.table("transactions").select("amount", "type", "channel").eq("user_id", current_user.id).execute()
         if tx_res.data:
@@ -124,14 +122,14 @@ async def chat(
             
         # 2. Enrich system prompt with real database context
         user_context_str = f"""
-ข้อมูลทางการเงินปัจจุบันของผู้ใช้คนนี้จากฐานข้อมูล (ใช้เพื่อตอบคำถามอย่างเป็นส่วนตัว):
-- ยอดรายรับสะสมปีนี้ (YTD Income): ฿{ytd_income:,.2f}
-- ยอดรายจ่ายสะสมปีนี้ (YTD Expense): ฿{ytd_expense:,.2f}
-- กำไรเบื้องต้น (Net Profit): ฿{(ytd_income - ytd_expense):,.2f}
-- ช่องทางการขายที่บันทึกไว้: {', '.join(active_channels) if active_channels else 'ยังไม่มีข้อมูลหรือระบุเป็นช่องทางอื่นๆ'}
-- จำนวนรายการลดหย่อนภาษีที่กรอกไว้: {allowance_count} รายการ
-- สถานะขีดจำกัดภาษีมูลค่าเพิ่ม (VAT 1.8M): {"เกินเกณฑ์จด VAT แล้ว! (ระวังความเสี่ยงด้านภาษีมูลค่าเพิ่ม)" if ytd_income >= 1800000 else f"ปลอดภัย (ยังเหลืออีก ฿{(1800000 - ytd_income):,.2f} จะถึงเกณฑ์เลี่ยงไม่ได้)"}
-"""
+    ข้อมูลทางการเงินปัจจุบันของผู้ใช้คนนี้จากฐานข้อมูล (ใช้เพื่อตอบคำถามอย่างเป็นส่วนตัว):
+    - ยอดรายรับสะสมปีนี้ (YTD Income): ฿{ytd_income:,.2f}
+    - ยอดรายจ่ายสะสมปีนี้ (YTD Expense): ฿{ytd_expense:,.2f}
+    - กำไรเบื้องต้น (Net Profit): ฿{(ytd_income - ytd_expense):,.2f}
+    - ช่องทางการขายที่บันทึกไว้: {', '.join(active_channels) if active_channels else 'ยังไม่มีข้อมูลหรือระบุเป็นช่องทางอื่นๆ'}
+    - จำนวนรายการลดหย่อนภาษีที่กรอกไว้: {allowance_count} รายการ
+    - สถานะขีดจำกัดภาษีมูลค่าเพิ่ม (VAT 1.8M): {"เกินเกณฑ์จด VAT แล้ว! (ระวังความเสี่ยงด้านภาษีมูลค่าเพิ่ม)" if ytd_income >= 1800000 else f"ปลอดภัย (ยังเหลืออีก ฿{(1800000 - ytd_income):,.2f} จะถึงเกณฑ์เลี่ยงไม่ได้)"}
+    """
         
         system = SYSTEM_PROMPT + "\n" + user_context_str
         
@@ -142,6 +140,15 @@ async def chat(
             system=system,
             messages=[{"role": m.role, "content": m.content} for m in req.messages],
         )
+        
+        # Increment quota count for this user only after Anthropic API success (P2 AI chat quota safeguard)
+        if user_plan not in ["pro", "agency"]:
+            user_id_str = str(current_user.id)
+            if 'month_key' not in locals():
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc)
+                month_key = f"{now.year}-{now.month:02d}"
+            _user_monthly_chats[user_id_str][month_key] += 1
 
         return {
             "reply": response.content[0].text,

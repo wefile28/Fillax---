@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFi
 from app.db.supabase import supabase, get_current_user
 from app.core.config import settings
 from app.core.security import SafeBaseModel
-from typing import Any
+from typing import Any, Literal
 from datetime import datetime, timedelta
 import hmac
 import hashlib
@@ -17,8 +17,8 @@ if settings.OMISE_SECRET_KEY:
     omise.api_public_key = settings.OMISE_PUBLIC_KEY
 
 class PaymentRequest(SafeBaseModel):
-    method: str  # 'promptpay' | 'credit_card'
-    plan: str = "pro"  # 'pro' | 'agency'
+    method: Literal['promptpay', 'credit_card']
+    plan: Literal['pro', 'agency'] = "pro"
     amount: float = 199.00
     token: str = "tok_simulated"
 
@@ -50,6 +50,25 @@ async def upgrade_user_plan(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database service is currently unavailable.",
+        )
+    
+    # Server-Side Price Mapping & Validation (P1 Security Hardening)
+    PLAN_PRICES = {
+        "pro": 199.00,
+        "agency": 499.00
+    }
+    
+    if payment.plan not in PLAN_PRICES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"แผนบริการ '{payment.plan}' ไม่ถูกต้องในระบบ Fillax"
+        )
+        
+    expected_amount = PLAN_PRICES[payment.plan]
+    if abs(payment.amount - expected_amount) > 0.01:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ยอดชำระเงินไม่ถูกต้องสำหรับแผน {payment.plan.upper()}: ระบุยอดเงินชำระ ฿{payment.amount:,.2f} แต่ราคาจริงคือ ฿{expected_amount:,.2f}"
         )
     
     # Check if a simulated bypass is requested (Sandbox mode)
@@ -91,6 +110,24 @@ async def upgrade_user_plan(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Payment rejected by Omise: {charge.failure_message}"
                 )
+                
+            # PromptPay Asynchronous pending charge handling (P1 Pending Guard)
+            if payment.method == "promptpay" and charge.status == "pending":
+                return {
+                    "status": "pending",
+                    "message": "สร้างรายการชำระเงินพร้อมเพย์สำเร็จ กรุณาสแกนคิวอาร์โค้ดเพื่อชำระเงิน ระบบจะเปิดใช้งานแผนบริการให้คุณโดยอัตโนมัติทันทีที่ชำระเงินเสร็จสิ้น ⏳",
+                    "charge_id": charge.id,
+                    "plan": payment.plan
+                }
+                
+            # If credit card and not successful
+            if payment.method == "credit_card" and charge.status != "successful":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"การชำระเงินผ่านบัตรเครดิตไม่สำเร็จ (สถานะ: {charge.status})"
+                )
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -219,8 +256,29 @@ async def omise_webhook(request: Request):
             metadata = data.get("metadata", {})
             user_id = metadata.get("user_id")
             plan_type = metadata.get("plan", "pro")
+            amount_val = data.get("amount")  # in satangs, e.g. 19900
+            currency_val = str(data.get("currency", "")).lower()
             
             if status_val == "successful" and user_id:
+                # Webhook plan, amount, and currency validation (P2 security hardening)
+                if plan_type not in ["pro", "agency"]:
+                    print(f"[SECURITY_WEBHOOK_WARNING] Ignore upgrade for user {user_id}: Invalid plan '{plan_type}' in metadata.")
+                    return {"status": "ignored", "detail": "Invalid plan type"}
+                    
+                if currency_val != "thb":
+                    print(f"[SECURITY_WEBHOOK_WARNING] Ignore upgrade for user {user_id}: Currency must be THB, got '{currency_val}'.")
+                    return {"status": "ignored", "detail": "Invalid currency"}
+                    
+                # Validate pricing mapping: Pro = 199.00 THB (19900 satangs), Agency = 499.00 THB (49900 satangs)
+                PLAN_SATANGS = {
+                    "pro": 19900,
+                    "agency": 49900
+                }
+                expected_satangs = PLAN_SATANGS[plan_type]
+                if amount_val != expected_satangs:
+                    print(f"[SECURITY_WEBHOOK_WARNING] Ignore upgrade for user {user_id}: Amount mismatch for plan '{plan_type}'. Expected {expected_satangs} satangs, got {amount_val} satangs.")
+                    return {"status": "ignored", "detail": "Amount mismatch"}
+                
                 # Set subscription expiration timestamp to 30 days from now
                 plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
                 
@@ -254,6 +312,8 @@ async def verify_slip(
     import anthropic
     import base64
     import json
+    import hashlib
+    from app.core.security import validate_uploaded_file
     
     if not supabase:
         raise HTTPException(
@@ -261,16 +321,33 @@ async def verify_slip(
             detail="Database service is currently unavailable.",
         )
         
+    # Strict MIME and File size validation (max 10MB) (P3 Validate MIME/extension)
+    await validate_uploaded_file(file)
+    
+    allowed_types = ["image/jpeg", "image/png", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="รองรับเฉพาะไฟล์รูปภาพสลิปโอนเงินนามสกุล PNG, JPG หรือ WEBP เท่านั้น"
+        )
+        
     # Read raw image content
     content = await file.read()
     content_type = file.content_type or "image/jpeg"
-    
-    # Enforce strict 10MB image limit to prevent buffer overflow or abuse
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ขนาดไฟล์สลิปต้องไม่เกิน 10MB"
-        )
+        
+    # Step 1: Cryptographic Image Hash Deduplication (P1 Slip Authenticity Guard - Exact Match)
+    file_hash = hashlib.sha256(content).hexdigest()
+    try:
+        dup_hash_res = supabase.table("payment_claims").select("id").eq("file_hash", file_hash).execute()
+        if dup_hash_res.data and len(dup_hash_res.data) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="สลิปโอนเงินนี้เคยถูกอัปโหลดเพื่อเปิดใช้งานแผนบริการไปแล้วในระบบ ไม่สามารถใช้งานซ้ำได้"
+            )
+    except HTTPException:
+        raise
+    except Exception as db_err:
+        print(f"[SLIP_VERIFY_DEDUPLICATION] Skip hash check due to DB error: {db_err}")
         
     client = None
     if settings.ANTHROPIC_API_KEY:
@@ -282,6 +359,11 @@ async def verify_slip(
         
     try:
         if not client:
+            if settings.APP_ENV != "development":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="AI slip verification is currently unavailable in production mode."
+                )
             # --- MOCK DEMO SIMULATION MODE ---
             # Automatically upgrade user to pro or agency based on filename or just pro by default
             filename_lower = file.filename.lower() if file.filename else ""
@@ -294,7 +376,7 @@ async def verify_slip(
                 "amount": amount,
                 "date": datetime.utcnow().strftime("%Y-%m-%d"),
                 "time": datetime.utcnow().strftime("%H:%M:%S"),
-                "receiver_promptpay": "089XXXXXXX",
+                "receiver_promptpay": "0638497065",
                 "receiver_name": "FILLAX CO., LTD.",
                 "ref_id": f"MOCK_REF_{uuid.uuid4().hex[:12].upper()}"
             }
@@ -375,16 +457,140 @@ async def verify_slip(
                     detail=f"ยอดเงินโอน ฿{amount:,.2f} ไม่ตรงกับค่าบริการแพลน PRO (฿199.00) หรือ AGENCY (฿499.00) ของระบบ Fillax"
                 )
                 
-        # Successful validation! Upgrade user profile to PRO/AGENCY immediately
-        plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+        # Step 2: Ref ID Deduplication Check (P2 Exact Matching Ref ID - eq match instead of ilike)
+        ref_id = parsed_slip.get("ref_id")
+        if ref_id:
+            try:
+                dup_ref_res = supabase.table("payment_claims").select("id").eq("ref_id", ref_id).execute()
+                if dup_ref_res.data and len(dup_ref_res.data) > 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"สลิปโอนเงินที่มีรหัสอ้างอิง {ref_id} เคยถูกอัปโหลดเพื่อยืนยันไปแล้วในระบบ ไม่สามารถใช้งานซ้ำได้"
+                    )
+            except HTTPException:
+                raise
+            except Exception as db_err:
+                print(f"[SLIP_VERIFY_REF_DEDUPLICATION] Exact Ref match error: {db_err}")
+
+        # Step 3: Receiver Account Verification (P2 Production Receiver Validation - Exact Merchant keywords)
+        receiver_name = str(parsed_slip.get("receiver_name", "")).upper()
+        receiver_pp = str(parsed_slip.get("receiver_promptpay", ""))
         
-        supabase.table("profiles").update({
-            "plan": target_plan,
-            "plan_expires_at": plan_expires_at,
-            "updated_at": "now()"
-        }).eq("id", current_user.id).execute()
+        is_receiver_valid = False
         
-        print(f"[SLIP_VERIFIED] User {current_user.id} successfully upgraded to {target_plan.upper()} via Bank Slip verification. Ref: {parsed_slip.get('ref_id')}")
+        # Strictly enforce company account name keywords in production to prevent fake slips from other people
+        if settings.APP_ENV == "production":
+            allowed_keywords = ["FILLAX", "ฟิลแลกซ์"]
+        else:
+            allowed_keywords = ["FILLAX", "ฟิลแลกซ์", "WEFILE28", "SOMCHAI", "สมชาย"]
+        
+        for kw in allowed_keywords:
+            if kw in receiver_name:
+                is_receiver_valid = True
+                break
+                
+        expected_pp = "0638497065"
+        if receiver_pp and expected_pp in receiver_pp.replace("-", ""):
+            is_receiver_valid = True
+            
+        if not is_receiver_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="สลิปโอนเงินนี้ไม่ใช่การโอนเงินเข้าบัญชีของ FILLAX (ไม่พบชื่อบัญชีผู้รับเงินทางการที่กำหนด) กรุณาโอนเงินเข้าบัญชี Fillax โดยตรงเท่านั้น"
+            )
+            
+        # Step 4: Secure Data Reservation before Profile Update (P1 Swap Verification Order to mitigate Race Condition)
+        try:
+            ref_id_str = ref_id or "N/A"
+            
+            # 1. Insert to payment_claims table first to lock the transaction level
+            claim_data = {
+                "user_id": str(current_user.id),
+                "ref_id": ref_id, # Can be None if not found, unique constraint allows multiple NULLs
+                "file_hash": file_hash,
+                "plan": target_plan,
+                "amount": amount
+            }
+            claim_res = supabase.table("payment_claims").insert(claim_data).execute()
+            
+            if not claim_res.data:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="ไม่สามารถลงทะเบียนการเคลมชำระเงินในระบบได้"
+                )
+            
+            claim_id = claim_res.data[0]["id"]
+            
+            # 2. Insert main expense receipt (auto-expense)
+            # Use file_url = f"payment_claim:{file_hash}" (or similar format) which is safe and non-colliding
+            # (Note: we will remove the unique index from schema.sql anyway, but this format is cleaner)
+            main_res = supabase.table("receipts").insert({
+                "user_id": str(current_user.id),
+                "file_name": file.filename or "fillax_subscription_slip.jpg",
+                "file_url": f"payment_claim:{file_hash}",
+                "file_size": len(content),
+                "mime_type": content_type,
+                "vendor": "FILLAX CO., LTD.",
+                "amount": amount,
+                "date": parsed_slip.get("date") or datetime.utcnow().strftime("%Y-%m-%d"),
+                "category": "ค่าซอฟต์แวร์/บริการดิจิทัล",
+                "description": f"ชำระค่าบริการระบบ FILLAX แพลน {target_plan.upper()} อัตโนมัติ (Ref ID: {ref_id_str})",
+                "seller_tax_id": "0107561000242",
+                "is_dbd_verified": True,
+                "dbd_company_name": "บริษัท ฟิลแลกซ์ จำกัด (มหาชน)",
+                "status": "completed",
+                "source": "payment"
+            }).execute()
+            
+            if not main_res.data:
+                # Rollback payment claim immediately
+                supabase.table("payment_claims").delete().eq("id", claim_id).execute()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to record payment receipt transaction in database."
+                )
+                
+            receipt_id = main_res.data[0]["id"]
+            
+        except HTTPException:
+            raise
+        except Exception as db_err:
+            # Check if unique constraint failed on ref_id or file_hash
+            db_err_str = str(db_err).lower()
+            if "unique constraint" in db_err_str or "duplicate key" in db_err_str:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="สลิปโอนเงินนี้หรือรหัสอ้างอิงธุรกรรมนี้เคยถูกใช้เคลมบริการไปแล้วในระบบ ไม่สามารถเคลมซ้ำได้"
+                )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"ไม่สามารถบันทึกและล็อกหลักฐานการชำระเงินในระบบได้: {str(db_err)}"
+            )
+
+        # Step 5: Successful validation and token reservation! Now safely upgrade profile
+        try:
+            plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+            
+            supabase.table("profiles").update({
+                "plan": target_plan,
+                "plan_expires_at": plan_expires_at,
+                "updated_at": "now()"
+            }).eq("id", current_user.id).execute()
+        except Exception as e:
+            # Safe rollback of the locked resources if profile update crashes
+            print(f"[SLIP_UPGRADE_FAIL] Failed to update user profile, rolling back reservation locks: {e}")
+            try:
+                # Rollback both records
+                supabase.table("payment_claims").delete().eq("id", claim_id).execute()
+                supabase.table("receipts").delete().eq("id", receipt_id).execute()
+            except Exception as rollback_err:
+                print(f"[ROLLBACK_FAIL] Failed to delete reservation: {rollback_err}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"ระบบเปิดแพลนสมาชิกมีข้อขัดข้อง (ย้อนกลับการจองแล้ว): {str(e)}"
+            )
+            
+        print(f"[SLIP_VERIFIED] User {current_user.id} successfully upgraded to {target_plan.upper()} via Bank Slip verification. Ref: {ref_id}")
         
         return {
             "status": "success",

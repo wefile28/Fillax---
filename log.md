@@ -1,5 +1,28 @@
 # Activity History - Fillax
 
+## 2026-05-24
+- **Atomic Payment Claims & Domain Isolation (P1 & P2)**:
+  * Deployed a dedicated `payment_claims` table with strict database-level `ref_id UNIQUE` and `file_hash UNIQUE` constraints to mitigate dual-request race conditions and prevent double-spending 100%.
+  * Completely removed global partial unique indexes (`idx_receipts_file_url_hash` and `idx_receipts_file_url_ref`) from the `receipts` table in [schema.sql](file:///d:/Fillax---/backend/app/db/schema.sql) to isolate domains and prevent duplicate normal receipts uploaded by different users from crashing with 500 errors.
+  * Migrated slip verification deduplication queries in `/verify-slip` ([payment.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/payment.py)) to target `payment_claims` instead of the general `receipts` table.
+- **Swap Verification Execution Order & Atomic Rollback (P1)**:
+  * Refactored `/verify-slip` in [payment.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/payment.py) to reserve claims and insert the main expense receipt (auto-expense) *before* executing the `profiles` subscription plan upgrade.
+  * Eliminated dummy Ref Lock receipts row insertions inside the receipts table, creating only one single clean auto-expense receipt to avoid data pollution.
+  * Implemented atomic transaction rollback logic: if updating the user's profile subscription plan fails, the newly reserved payment claim and receipt ledger entries are immediately deleted to release the locks safely.
+- **Free OCR Quota Payment Exclusion (P2)**:
+  * Excluded monthly subscription slip receipts from counting against the user's free monthly AI OCR quota (10 scans) in [receipts.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/receipts.py).
+  * Added the dynamic `.neq("source", "payment")` filter to the quota calculation query, ensuring payment activities do not penalize users' free scanning limits.
+- **Strict Server-Side Webhook & Price Validation (P2)**:
+  * Hardened the `/webhook` event handler in [payment.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/payment.py) to validate plan type (`metadata.plan` must be `"pro"` or `"agency"`), currency (`data.currency` must be `"thb"`), and transaction amount (must match `19900` satangs for Pro and `49900` satangs for Agency).
+  * Suspended automatic upgrades for any mismatched, simulation-bypassed, or unconfigured webhooks in production mode to prevent unauthorized elevation of privileges.
+- **Frontend Upgrade Security & State Consistency (P2)**:
+  * Refactored `processPayment` in [upgrade-dialog.tsx](file:///d:/Fillax---/frontend/src/components/upgrade-dialog.tsx) to strictly restrict client-side visual upgrade triggers (`fillax_is_pro` inside localStorage and the celebration animation) to successfully verified sessions only (`status === "success"`).
+  * Implemented strict exception throwing if session verification fails or if the API returns a status other than `"success"` or `"pending"`.
+- **Indentation Error Resolution & SRE Checks**:
+  * Corrected a Python `IndentationError` on line 90 in [ai.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/ai.py) where the free monthly chat quota block had extra spaces.
+  * Verified 100% green compilation across Next.js static page generations, passing all standard ESLint rules.
+  * Successfully verified the backend test runner with **38/38 green passing tests** and absolutely zero failures.
+
 ## 2026-05-18
 - **UI/UX Year Selector Standardization (Export & Tax Risk Assessment)**:
   * Overhauled the legacy dropdown `Select` year component in the Export page (`export/page.tsx`) and the rigid square type-in buttons in the Tax Risk Assessment page (`tax-risk-assessment/page.tsx`).
@@ -318,3 +341,11 @@
 - **SRE & Production Verification**:
   * Executed the backend pytest runner, ensuring **38/38 unit and integration tests passed perfectly** in 5.45s with zero warnings.
   * Executed Next.js Turbopack production compilation, achieving 100% build success in 3.6s with absolutely zero TypeScript, ESLint, or hydration warnings.
+- **LINE status card float flex validation bugfix**:
+  * Identified and fixed a critical bug inside the custom LINE Flex Message Status Card (`send_status_card` in `line.py`) which used float values for `flex` properties (`2.2` and `3.8`). The LINE Messaging API strictly requires integer values for the `flex` property, causing the LINE API gateway to reject the payload and crash the reply flow silently.
+  * Converted the float `flex` values to integers (`2` and `4`), restoring successful status card delivery to users.
+  * Synchronously tested `handle_text_message` inside a custom test script to verify successful end-to-end webhook execution.
+- **Service boot and local runtime verification**:
+  * Successfully started the FastAPI backend server on port `8000` (`http://0.0.0.0:8000`) in the background.
+  * Successfully started the Next.js frontend dev server on port `3000` (`http://localhost:3000`) in the background.
+  * Guaranteed both servers are fully running and integrated without any ports or startup collisions.

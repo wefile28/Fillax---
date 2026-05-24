@@ -112,6 +112,46 @@ export default function UpgradeDialog({ open, onOpenChange, onSuccess, planType 
       
       if (session) {
         // Authenticated flow: update FastAPI backend database
+        let token = "tok_omise_pp_simulated";
+        const isProduction = process.env.NODE_ENV === "production";
+        
+        // If Omise public key is configured, create a real PromptPay source token on client side
+        const omisePublicKey = process.env.NEXT_PUBLIC_OMISE_PUBLIC_KEY;
+        if (omisePublicKey) {
+          try {
+            const omiseRes = await fetch("https://api.omise.co/sources", {
+              method: "POST",
+              headers: {
+                "Authorization": "Basic " + btoa(omisePublicKey + ":"),
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                type: "promptpay",
+                amount: Math.round(payAmount * 100),
+                currency: "THB"
+              })
+            });
+            if (omiseRes.ok) {
+              const sourceData = await omiseRes.json();
+              if (sourceData && sourceData.id) {
+                token = sourceData.id;
+              }
+            } else {
+              if (isProduction) {
+                throw new Error("ไม่สามารถเชื่อมต่อเกตเวย์รับชำระเงินจริงได้ในขณะนี้ กรุณาอัปโหลดรูปภาพสลิปโอนเงินธนาคารแทน");
+              }
+              console.warn("Failed to create real Omise source, using fallback in development.");
+            }
+          } catch (omiseErr: any) {
+            if (isProduction) {
+              throw new Error(omiseErr.message || "ระบบเข้ารหัสชำระเงินมีความขัดข้อง กรุณาโอนเงินพร้อมอัปโหลดรูปสลิปแทน");
+            }
+            console.error("Omise source tokenization failed:", omiseErr);
+          }
+        } else if (isProduction) {
+          throw new Error("เกตเวย์การชำระเงินอัตโนมัติยังไม่ได้ตั้งค่าอย่างสมบูรณ์บนเซิร์ฟเวอร์จริง กรุณาโอนเงินและอัปโหลดสลิปเพื่อเปิดใช้งานระบบอัตโนมัติ 📸");
+        }
+
         const response = await fetch(`${API_URL}/api/v1/payment/upgrade`, {
           method: "POST",
           headers: {
@@ -122,22 +162,38 @@ export default function UpgradeDialog({ open, onOpenChange, onSuccess, planType 
             method: method,
             plan: plan,
             amount: payAmount,
-            token: method === "credit_card" ? "tok_stripe_simulated_" + Math.random().toString(36).substring(7) : "tok_omise_pp_simulated"
+            token: token
           })
         });
 
         if (!response.ok) {
           throw new Error("ระบบเซิร์ฟเวอร์ชำระเงินขัดข้อง กรุณาลองใหม่อีกครั้ง");
         }
-      }
 
-      // Universal Local Storage fallback to sync state instantly
-      localStorage.setItem("fillax_is_pro", "true");
-      window.dispatchEvent(new Event("storage"));
-      
-      setIsSuccess(true);
-      toast.success(`อัปเกรดเป็นระดับ ${plan === "agency" ? "AGENCY" : "PRO"} สำเร็จแล้ว! 🎉✨`);
-      if (onSuccess) onSuccess();
+        const resData = await response.json();
+        
+        // Handle asynchronous PromptPay pending QR flow (P2 Frontend Pending PromptPay)
+        if (resData && resData.status === "pending") {
+          toast.info(resData.message || "สร้างรายการพร้อมเพย์สำเร็จ! กรุณาสแกนคิวอาร์โค้ดชำระเงินเพื่อเปิดใช้งานแผนอัตโนมัติ ⏳", { duration: 10000 });
+          setIsProcessing(false);
+          onOpenChange(false);
+          return;
+        }
+
+        if (resData && resData.status === "success") {
+          // Universal Local Storage fallback to sync state instantly (Only on Direct Success)
+          localStorage.setItem("fillax_is_pro", "true");
+          window.dispatchEvent(new Event("storage"));
+          
+          setIsSuccess(true);
+          toast.success(`อัปเกรดเป็นระดับ ${plan === "agency" ? "AGENCY" : "PRO"} สำเร็จแล้ว! 🎉✨`);
+          if (onSuccess) onSuccess();
+        } else {
+          throw new Error(resData.message || "การอัปเกรดไม่สำเร็จ กรุณาตรวจสอบข้อมูลการชำระเงิน");
+        }
+      } else {
+        throw new Error("เซสชันผู้ใช้หมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
+      }
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "การชำระเงินไม่สำเร็จ กรุณาตรวจสอบข้อมูล");
@@ -245,20 +301,22 @@ export default function UpgradeDialog({ open, onOpenChange, onSuccess, planType 
 
               <div className="w-full border-t border-dashed my-1" />
 
-              <Button
-                onClick={() => processPayment("promptpay")}
-                disabled={isProcessing || isVerifyingSlip}
-                className="w-full h-12 rounded-2xl font-bold bg-primary text-white flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-              >
-                {isProcessing ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    กำลังยืนยันการชำระเงิน...
-                  </>
-                ) : (
-                  "ยืนยันชำระเงินแบบจำลอง (Sandbox)"
-                )}
-              </Button>
+              {process.env.NODE_ENV !== "production" && (
+                <Button
+                  onClick={() => processPayment("promptpay")}
+                  disabled={isProcessing || isVerifyingSlip}
+                  className="w-full h-12 rounded-2xl font-bold bg-primary text-white flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+                >
+                  {isProcessing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      กำลังยืนยันการชำระเงิน...
+                    </>
+                  ) : (
+                    "ยืนยันชำระเงินแบบจำลอง (Sandbox)"
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         )}

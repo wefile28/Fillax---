@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS public.receipts (
 -- ดัชนีสำหรับการสืบค้นใบเสร็จ
 CREATE INDEX IF NOT EXISTS idx_receipts_user_created ON public.receipts(user_id, created_at);
 
+-- ลบดัชนีเก่าที่มีผลกระทบต่อ OCR ข้ามผู้ใช้ (DROP INDEX Migration - P1 Production Hardening)
+DROP INDEX IF EXISTS public.idx_receipts_file_url_hash;
+DROP INDEX IF EXISTS public.idx_receipts_file_url_ref;
+
+
 -- 6. ตารางเก็บข้อมูลโปรไฟล์และการเชื่อมบัญชี LINE Bot (Line Profiles)
 CREATE TABLE IF NOT EXISTS public.line_profiles (
   id                 UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -124,6 +129,29 @@ CREATE TABLE IF NOT EXISTS public.line_profiles (
 CREATE INDEX IF NOT EXISTS idx_line_profiles_line_user_id ON public.line_profiles(line_user_id);
 CREATE INDEX IF NOT EXISTS idx_line_profiles_pairing_code ON public.line_profiles(pairing_code);
 
+-- 7. ตารางจองสิทธิ์และตรวจสอบความซ้ำซ้อนการชำระเงิน (Payment Claims - P1 Database Atomicity Guard)
+CREATE TABLE IF NOT EXISTS public.payment_claims (
+  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id         UUID REFERENCES auth.users(id) NOT NULL,
+  ref_id          TEXT UNIQUE,
+  file_hash       TEXT UNIQUE,
+  charge_id       TEXT UNIQUE,           -- ผูกกับ Omise charge id
+  plan            TEXT NOT NULL,
+  amount          NUMERIC(12,2) NOT NULL,
+  status          TEXT DEFAULT 'pending', -- 'pending' | 'completed' | 'failed' | 'refunded'
+  receipt_id      UUID,                  -- ผูกกับตาราง receipts.id หากเปิดใช้งานสำเร็จ
+  claim_source    TEXT DEFAULT 'slip',   -- 'slip' | 'omise'
+  processed_at    TIMESTAMPTZ,           -- เวลาที่อัปเกรดสำเร็จ
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Migration สำหรับอัปเกรดฐานข้อมูลเดิมที่เคยติดตั้งไปแล้ว (Database Column Migration Guards)
+ALTER TABLE public.payment_claims ADD COLUMN IF NOT EXISTS charge_id TEXT UNIQUE;
+ALTER TABLE public.payment_claims ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+ALTER TABLE public.payment_claims ADD COLUMN IF NOT EXISTS receipt_id UUID;
+ALTER TABLE public.payment_claims ADD COLUMN IF NOT EXISTS claim_source TEXT DEFAULT 'slip';
+ALTER TABLE public.payment_claims ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+
 -- ====================================================================
 -- ROW LEVEL SECURITY (RLS) - ความปลอดภัยแยกการเห็นข้อมูลเฉพาะตัวบุคคล
 -- ====================================================================
@@ -134,6 +162,7 @@ ALTER TABLE public.tax_checks   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_deductions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.receipts     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.line_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_claims ENABLE ROW LEVEL SECURITY;
 
 -- นโยบาย RLS: เข้าถึงได้เฉพาะของตนเอง (auth.uid() = user_id)
 CREATE POLICY "profiles_own" ON public.profiles
@@ -152,4 +181,7 @@ CREATE POLICY "receipts_own" ON public.receipts
   FOR ALL USING (auth.uid() = user_id);
 
 CREATE POLICY "line_profiles_own" ON public.line_profiles
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "payment_claims_own" ON public.payment_claims
   FOR ALL USING (auth.uid() = user_id);

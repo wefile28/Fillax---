@@ -901,32 +901,32 @@ async def send_status_card(reply_token: str, display_name: str, plan: str, shop_
                     "layout": "horizontal",
                     "margin": "md",
                     "contents": [
-                        {"type": "text", "text": "👤 ชื่อ LINE:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
-                        {"type": "text", "text": str(display_name), "size": "sm", "weight": "bold", "color": "#5A4A68", "flex": 3.8, "wrap": True}
+                        {"type": "text", "text": "👤 ชื่อ LINE:", "size": "sm", "color": "#7a7a7a", "flex": 2},
+                        {"type": "text", "text": str(display_name), "size": "sm", "weight": "bold", "color": "#5A4A68", "flex": 4, "wrap": True}
                     ]
                 },
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "🏢 ข้อมูลธุรกิจ:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
-                        {"type": "text", "text": str(shop_display), "size": "sm", "weight": "bold", "color": shop_color, "flex": 3.8, "wrap": True}
+                        {"type": "text", "text": "🏢 ข้อมูลธุรกิจ:", "size": "sm", "color": "#7a7a7a", "flex": 2},
+                        {"type": "text", "text": str(shop_display), "size": "sm", "weight": "bold", "color": shop_color, "flex": 4, "wrap": True}
                     ]
                 },
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "👑 แผนสมาชิก:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
-                        {"type": "text", "text": str(plan_display), "size": "sm", "weight": "bold", "color": plan_color, "flex": 3.8}
+                        {"type": "text", "text": "👑 แผนสมาชิก:", "size": "sm", "color": "#7a7a7a", "flex": 2},
+                        {"type": "text", "text": str(plan_display), "size": "sm", "weight": "bold", "color": plan_color, "flex": 4}
                     ]
                 },
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "🟢 ซิงก์คลาวด์:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
-                        {"type": "text", "text": "เชื่อมต่อแล้ว 🟢", "size": "sm", "weight": "bold", "color": "#10B981", "flex": 3.8}
+                        {"type": "text", "text": "🟢 ซิงก์คลาวด์:", "size": "sm", "color": "#7a7a7a", "flex": 2},
+                        {"type": "text", "text": "เชื่อมต่อแล้ว 🟢", "size": "sm", "weight": "bold", "color": "#10B981", "flex": 4}
                     ]
                 },
                 {

@@ -323,6 +323,8 @@ async def scan_receipt(
                 .select("id", count="exact")\
                 .eq("user_id", current_user.id)\
                 .gte("created_at", start_of_month)\
+                .in_("status", ["completed", "scanning"])\
+                .neq("source", "payment")\
                 .execute()
                 
             receipts_count = res.count or 0
@@ -397,7 +399,7 @@ async def scan_receipt(
             detail=f"Failed to record receipt scan pipeline: {ins_err}"
         )
         
-    # 4. Enqueue Asynchronous Background Task for visual OCR
+    # 4. Process OCR asynchronously in background queue to prevent proxy timeouts
     client_ip = request.client.host if request.client else "unknown"
     background_tasks.add_task(
         async_process_ocr,
@@ -410,6 +412,5 @@ async def scan_receipt(
         client_ip
     )
     
-    # Return scanning placeholder immediately (near-instant ~150ms response!)
     return receipt_data
 

@@ -25,6 +25,7 @@ class TaxStatusRequest(SafeBaseModel):
     annual_income: float
     seller_type: str = "individual"
     ever_filed: bool = False
+    tax_year: int = Field(2026, description="ปีภาษี")
 
 # -------------------------------------------------------
 # Endpoints
@@ -70,7 +71,7 @@ async def check_tax_status(
     try:
         supabase.table("tax_checks").insert({
             "user_id": current_user.id,
-            "tax_year": 2026,
+            "tax_year": req.tax_year,
             "annual_income": req.annual_income,
             "status": status_str,
             "result_json": result_payload

@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,7 @@ export default function Receipts() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [isOcrScanning, setIsOcrScanning] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [activePreviewUrl, setActivePreviewUrl] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -95,7 +96,55 @@ export default function Receipts() {
   const [fileToCrop, setFileToCrop] = useState<string | null>(null);
   const [originalFileName, setOriginalFileName] = useState<string>("");
   const [originalFileType, setOriginalFileType] = useState<string>("");
-  const loadReceipts = () => {
+  const loadReceipts = async () => {
+    setIsLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        // Fetch receipts from Supabase for this authenticated user!
+        const { data: dbReceipts, error } = await supabase
+          .from("receipts")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false });
+        
+        if (!error && dbReceipts) {
+          // Map Supabase receipts back to frontend format
+          const mapped: Receipt[] = dbReceipts.map((r: any) => {
+            const parsedDate = r.date ? new Date(r.date) : new Date(r.created_at);
+            return {
+              id: r.id, // String UUID
+              fileName: r.file_name,
+              fileUrl: r.file_url,
+              fileKey: r.file_url,
+              mimeType: r.mime_type,
+              fileSize: r.file_size,
+              uploadDate: r.created_at,
+              year: parsedDate.getFullYear(),
+              month: parsedDate.getMonth() + 1,
+              day: parsedDate.getDate(),
+              description: r.description || "",
+              amount: r.amount ? String(r.amount) : "",
+              vendor: r.vendor || "",
+              sellerTaxId: r.seller_tax_id || "",
+              isDbdVerified: r.is_dbd_verified || false,
+              dbdCompanyName: r.dbd_company_name || "",
+              createdAt: r.created_at
+            };
+          });
+          
+          // Backup/Sync to local storage for offline support
+          localStorage.setItem("fillax_receipts", JSON.stringify(mapped));
+          setReceipts(mapped);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("Failed to sync receipts with Supabase:", err);
+    }
+    
+    // Fallback to local storage if not authenticated or error
     setReceipts(getReceipts());
     setIsLoading(false);
   };
@@ -143,6 +192,34 @@ export default function Receipts() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1,
+    day: new Date().getDate(),
+    description: "",
+    vendor: "",
+    amount: "",
+    sellerTaxId: "",
+    isDbdVerified: false,
+    dbdCompanyName: "",
+  });
+
+  const handleEditClick = (receipt: Receipt) => {
+    setEditingReceipt(receipt);
+    setEditFormData({
+      year: receipt.year,
+      month: receipt.month,
+      day: receipt.day,
+      description: receipt.description || "",
+      vendor: receipt.vendor || "",
+      amount: receipt.amount || "",
+      sellerTaxId: receipt.sellerTaxId || "",
+      isDbdVerified: receipt.isDbdVerified || false,
+      dbdCompanyName: receipt.dbdCompanyName || "",
+    });
   };
 
   // URL-Based LINE Review Ingest hook
@@ -207,34 +284,6 @@ export default function Receipts() {
       handleReviewQuery();
     }
   }, [isLoading]);
-
-  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    year: new Date().getFullYear(),
-    month: new Date().getMonth() + 1,
-    day: new Date().getDate(),
-    description: "",
-    vendor: "",
-    amount: "",
-    sellerTaxId: "",
-    isDbdVerified: false,
-    dbdCompanyName: "",
-  });
-
-  const handleEditClick = (receipt: Receipt) => {
-    setEditingReceipt(receipt);
-    setEditFormData({
-      year: receipt.year,
-      month: receipt.month,
-      day: receipt.day,
-      description: receipt.description || "",
-      vendor: receipt.vendor || "",
-      amount: receipt.amount || "",
-      sellerTaxId: receipt.sellerTaxId || "",
-      isDbdVerified: receipt.isDbdVerified || false,
-      dbdCompanyName: receipt.dbdCompanyName || "",
-    });
-  };
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -407,41 +456,83 @@ export default function Receipts() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to scan receipt with backend AI OCR.");
+        const errData = await response.json();
+        throw new Error(errData.detail || "Failed to scan receipt with backend AI OCR.");
       }
 
       const scanResult = await response.json();
       
-      const parsedDate = scanResult.date ? new Date(scanResult.date) : new Date();
+      // Step 2: Start Polling for OCR background completion (P2 Asynchronous Polling Integration)
+      let attempts = 0;
+      const maxAttempts = 15; // 15 * 2 = 30 seconds timeout
+      let finalResult = scanResult;
+      
+      toast.loading("AI กำลังวิเคราะห์และตรวจสอบบริษัทกับกรมพัฒนาธุรกิจค้า (DBD)... 🤖", { id: "ocr-scan-loading" });
+
+      while (attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        attempts++;
+
+        const { data: currentReceipt, error: pollError } = await supabase
+          .from("receipts")
+          .select("*")
+          .eq("id", scanResult.id)
+          .single();
+
+        if (pollError) {
+          console.error("Polling database lookup skipped/retry:", pollError);
+          continue;
+        }
+
+        if (currentReceipt && currentReceipt.status !== "scanning") {
+          finalResult = currentReceipt;
+          break;
+        }
+      }
+      
+      toast.dismiss("ocr-scan-loading");
+
+      const parsedDate = finalResult.date ? new Date(finalResult.date) : new Date();
 
       setFormData({
         ...formData,
-        vendor: scanResult.vendor || "",
-        amount: scanResult.amount ? String(scanResult.amount) : "",
+        vendor: finalResult.vendor || "",
+        amount: finalResult.amount ? String(finalResult.amount) : "",
         year: parsedDate.getFullYear(),
         month: parsedDate.getMonth() + 1,
         day: parsedDate.getDate(),
-        description: scanResult.description || "สแกนและวิเคราะห์ด้วย AI OCR",
-        sellerTaxId: scanResult.seller_tax_id || "",
-        isDbdVerified: scanResult.is_dbd_verified || false,
-        dbdCompanyName: scanResult.dbd_company_name || "",
+        description: finalResult.description || "สแกนและวิเคราะห์ด้วย AI OCR",
+        sellerTaxId: finalResult.seller_tax_id || "",
+        isDbdVerified: finalResult.is_dbd_verified || false,
+        dbdCompanyName: finalResult.dbd_company_name || "",
       });
 
-      if (!isPro) {
-        const nextQuota = ocrQuota + 1;
-        setOcrQuota(nextQuota);
-        localStorage.setItem("fillax_ocr_quota", String(nextQuota));
+      // Handle Quota and Toasting based on final OCR status (P2 Failing Toast & Quota Protection)
+      if (finalResult.status === "completed") {
+        if (!isPro) {
+          const nextQuota = ocrQuota + 1;
+          setOcrQuota(nextQuota);
+          localStorage.setItem("fillax_ocr_quota", String(nextQuota));
+        }
+        toast.success("สแกนและดึงข้อมูลสำเร็จพร้อมรับรอง DBD Verified! 🟢");
+      } else if (finalResult.status === "pending_review") {
+        // Warning due to duplicates or OCR parsing errors - DO NOT consume quota
+        const warningMsg = finalResult.description || "ระบบตรวจพบความซับซ้อนหรือไฟล์ซ้ำซ้อน";
+        toast.warning(`⚠️ ย้ายไปยังหมวดรอตรวจสอบ (Pending Review): ${warningMsg}`, { duration: 6000 });
+      } else {
+        // Failed status - DO NOT consume quota
+        toast.error("การสแกนใบเสร็จอัตโนมัติล้มเหลว - โปรดระบุข้อมูลด้วยตนเอง");
       }
-      toast.success("สแกนและดึงข้อมูลสำเร็จพร้อมรับรอง DBD Verified! 🟢");
     } catch (err: any) {
       console.error(err);
-      toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อระบบ AI OCR - โปรดระบุข้อมูลด้วยตนเอง");
+      toast.dismiss("ocr-scan-loading");
+      toast.error(err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อระบบ AI OCR - โปรดระบุข้อมูลด้วยตนเอง");
     } finally {
       setIsOcrScanning(false);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedFile) {
@@ -450,41 +541,93 @@ export default function Receipts() {
     }
 
     setUploading(true);
+    toast.loading("กำลังบันทึกข้อมูลใบเสร็จเข้าระบบ... 💾", { id: "save-receipt-toast" });
     
     // Save previous state for rollback on failure
     const previousReceipts = [...receipts];
     
-    const mockUrl = URL.createObjectURL(selectedFile);
-    const mockReceipt: Receipt = {
-      id: Date.now(), // Temp numeric ID for instant UI updates
-      fileName: selectedFile.name,
-      fileUrl: mockUrl,
-      fileKey: `receipts/${Date.now()}-${selectedFile.name}`,
-      mimeType: selectedFile.type,
-      fileSize: selectedFile.size,
-      uploadDate: new Date().toISOString(),
-      year: formData.year,
-      month: formData.month,
-      day: formData.day,
-      description: formData.description,
-      amount: formData.amount,
-      vendor: formData.vendor,
-      sellerTaxId: formData.sellerTaxId,
-      isDbdVerified: formData.isDbdVerified,
-      dbdCompanyName: formData.dbdCompanyName,
-      createdAt: new Date().toISOString()
-    };
-
-    // Optimistically update the UI instantly
-    setReceipts([...receipts, mockReceipt]);
-    resetForm();
-    setIsOpen(false);
-
     try {
-      const created = createReceipt({
+      const { data: { session } } = await supabase.auth.getSession();
+      let fileUrl = URL.createObjectURL(selectedFile); // Temp object URL
+      let realId: string | number = Date.now();
+      let newRecord: any = null;
+
+      if (session) {
+        try {
+          // 1. Upload file to Supabase Storage in the receipts bucket
+          const fileExt = selectedFile.name.split(".").pop();
+          const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+          const filePath = `${session.user.id}/${fileName}`;
+          
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from("receipts")
+            .upload(filePath, selectedFile);
+            
+          if (uploadError) {
+            console.error("Storage upload failed, using fallback:", uploadError);
+          } else {
+            const { data: { publicUrl } } = supabase.storage
+              .from("receipts")
+              .getPublicUrl(filePath);
+            fileUrl = publicUrl;
+          }
+          
+          // 2. Insert record into Supabase receipts Table
+          const { data: dbData, error: dbError } = await supabase
+            .from("receipts")
+            .insert({
+              user_id: session.user.id,
+              file_name: selectedFile.name,
+              file_url: fileUrl,
+              file_size: selectedFile.size,
+              mime_type: selectedFile.type,
+              vendor: formData.vendor,
+              amount: formData.amount ? parseFloat(formData.amount) : null,
+              date: `${formData.year}-${String(formData.month).padStart(2, "0")}-${String(formData.day).padStart(2, "0")}`,
+              category: formData.category || "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+              description: formData.description,
+              seller_tax_id: formData.sellerTaxId || null,
+              is_dbd_verified: formData.isDbdVerified || false,
+              dbd_company_name: formData.dbdCompanyName || null,
+              status: "completed",
+              source: "web"
+            })
+            .select()
+            .single();
+            
+          if (dbError) {
+            console.error("Database insert failed, using fallback:", dbError);
+          } else if (dbData) {
+            newRecord = dbData;
+            realId = dbData.id;
+            fileUrl = dbData.file_url;
+          }
+        } catch (dbErr) {
+          console.error("Supabase operations failed, falling back to local:", dbErr);
+        }
+      }
+
+      // If failed or offline, fall back to converting to Base64 to persist file in localStorage without crashing on reload
+      if (!newRecord) {
+        try {
+          const toBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+          });
+          const base64Url = await toBase64(selectedFile);
+          fileUrl = base64Url;
+        } catch (b64Err) {
+          console.warn("Base64 conversion failed, using object URL:", b64Err);
+        }
+      }
+
+      const mockReceipt: Receipt = {
+        id: realId,
         fileName: selectedFile.name,
-        fileUrl: mockUrl,
-        fileKey: `receipts/${Date.now()}-${selectedFile.name}`,
+        fileUrl: fileUrl,
+        fileKey: `receipts/${realId}-${selectedFile.name}`,
         mimeType: selectedFile.type,
         fileSize: selectedFile.size,
         uploadDate: new Date().toISOString(),
@@ -497,27 +640,36 @@ export default function Receipts() {
         sellerTaxId: formData.sellerTaxId,
         isDbdVerified: formData.isDbdVerified,
         dbdCompanyName: formData.dbdCompanyName,
-      });
+        createdAt: new Date().toISOString()
+      };
 
-      toast.success("อัปโหลดและบันทึกใบเสร็จสำเร็จ! 🎉");
-      // Replace the temp mock item with the fully registered one to secure its real ID
-      setReceipts(prev => prev.map(r => r.id === mockReceipt.id ? created : r));
-    } catch (err) {
+      // Update Local Storage
+      const currentItems = getReceipts();
+      const updatedLocal = [...currentItems.filter(r => r.id !== realId), mockReceipt];
+      localStorage.setItem("fillax_receipts", JSON.stringify(updatedLocal));
+      
+      // Update UI State
+      setReceipts(prev => [...prev.filter(r => r.id !== realId), mockReceipt]);
+      
+      resetForm();
+      setIsOpen(false);
+      toast.success("บันทึกข้อมูลใบเสร็จและซิงค์เข้าระบบเรียบร้อย! 🎉", { id: "save-receipt-toast" });
+    } catch (err: any) {
       console.error("Failed to create receipt:", err);
-      // Rollback to previous state on failure
       setReceipts(previousReceipts);
-      toast.error("เกิดข้อผิดพลาดในการบันทึกเอกสารใบเสร็จ");
+      toast.error(err.message || "เกิดข้อผิดพลาดในการบันทึกเอกสารใบเสร็จ", { id: "save-receipt-toast" });
     } finally {
       setUploading(false);
+      toast.dismiss("save-receipt-toast");
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: number | string) => {
     setDeleteTargetId(id);
     setIsDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deleteTargetId !== null) {
       // Save previous state for rollback on failure
       const previousReceipts = [...receipts];
@@ -525,17 +677,38 @@ export default function Receipts() {
       // Optimistically remove from state instantly
       setReceipts(receipts.filter((r) => r.id !== deleteTargetId));
       setIsDeleteDialogOpen(false);
+      toast.loading("กำลังลบใบเสร็จออกจากระบบ... 🗑️", { id: "delete-receipt-toast" });
 
       try {
-        deleteReceipt(deleteTargetId);
-        toast.success("ลบใบเสร็จสำเร็จ! 🗑️");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          // Delete from Supabase receipts table
+          const { error } = await supabase
+            .from("receipts")
+            .delete()
+            .eq("id", deleteTargetId)
+            .eq("user_id", session.user.id);
+            
+          if (error) console.warn("Supabase database delete warning:", error);
+        }
+        
+        // Also delete from local storage
+        if (typeof deleteTargetId === "number") {
+          deleteReceipt(deleteTargetId);
+        } else {
+          // If string UUID, filter it out from local storage receipts
+          const items = getReceipts().filter((r) => r.id !== deleteTargetId);
+          localStorage.setItem("fillax_receipts", JSON.stringify(items));
+        }
+        toast.success("ลบใบเสร็จออกจากระบบเรียบร้อย! 🗑️", { id: "delete-receipt-toast" });
       } catch (err) {
         console.error("Failed to delete receipt:", err);
         // Rollback to previous state on failure
         setReceipts(previousReceipts);
-        toast.error("เกิดข้อผิดพลาดในการลบเอกสารใบเสร็จ");
+        toast.error("เกิดข้อผิดพลาดในการลบเอกสารใบเสร็จ", { id: "delete-receipt-toast" });
       } finally {
         setDeleteTargetId(null);
+        toast.dismiss("delete-receipt-toast");
       }
     }
   };
@@ -971,7 +1144,6 @@ export default function Receipts() {
                               }}
                               className="relative aspect-[4/3] w-full rounded-xl overflow-hidden bg-white/80 border border-slate-100 shadow-inner cursor-zoom-in group/img"
                             >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={receipt.fileUrl}
                                 alt={receipt.fileName}
@@ -1065,7 +1237,7 @@ export default function Receipts() {
                                   variant="outline"
                                   onClick={() => {
                                     toast.success(`กำลังย้ายข้อมูล ${receipt.vendor || "ใบเสร็จ"} ไปยังสมุดบัญชี...`);
-                                    router.push(`/transactions?receiptId=${receipt.id}&amount=${receipt.amount}&vendor=${receipt.vendor}&date=${receipt.year}-${receipt.month}-${receipt.day}&sellerTaxId=${receipt.sellerTaxId || ""}&isDbdVerified=${receipt.isDbdVerified || false}&dbdCompanyName=${receipt.dbdCompanyName || ""}`);
+                                    router.push(`/transactions?receiptId=${encodeURIComponent(receipt.id)}&amount=${encodeURIComponent(receipt.amount || "")}&vendor=${encodeURIComponent(receipt.vendor || "")}&date=${encodeURIComponent(`${receipt.year}-${receipt.month}-${receipt.day}`)}&sellerTaxId=${encodeURIComponent(receipt.sellerTaxId || "")}&isDbdVerified=${encodeURIComponent(String(receipt.isDbdVerified || false))}&dbdCompanyName=${encodeURIComponent(receipt.dbdCompanyName || "")}`);
                                   }}
                                   className="w-full text-[11px] h-8 rounded-lg bg-gradient-to-r from-[#B08CFF]/10 to-[#8C66FF]/10 hover:from-[#B08CFF] hover:to-[#8C66FF] hover:text-white border-primary/20 text-[#8C66FF] font-extrabold transition-all duration-300"
                                 >
@@ -1417,7 +1589,6 @@ export default function Receipts() {
           
           <div className="relative w-full max-h-[70vh] rounded-2xl overflow-y-auto bg-slate-50 border border-slate-100 p-2 shadow-inner flex items-center justify-center scrollbar-thin">
             {activePreviewUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={activePreviewUrl}
                 alt="Receipt Zoom Preview"
