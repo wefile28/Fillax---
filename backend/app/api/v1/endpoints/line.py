@@ -147,7 +147,26 @@ async def line_webhook(
     return {"status": "ok"}
 
 async def handle_text_message(line_user_id: str, text: str, reply_token: str):
-    """Processes text inputs (like Magic Pairing codes: e.g. FL-123456 or 123456)."""
+    """Processes text inputs (like Magic Pairing codes: e.g. FL-123456 or 123456, or status queries)."""
+    
+    # Intercept Status Commands
+    if text.strip() in ["เช็คสถานะ", "สถานะ", "status", "เช็คระบบ", "ตรวจระบบ"]:
+        profile_res = supabase.table("line_profiles").select("user_id, display_name").eq("line_user_id", line_user_id).execute()
+        if profile_res.data:
+            user_id = profile_res.data[0]["user_id"]
+            display_name = profile_res.data[0]["display_name"] or "ผู้ใช้ Fillax"
+            
+            # Fetch plan and shop_name
+            user_prof = supabase.table("profiles").select("plan, shop_name").eq("id", user_id).execute()
+            plan = "free"
+            shop_name = None
+            if user_prof.data:
+                plan = user_prof.data[0].get("plan", "free")
+                shop_name = user_prof.data[0].get("shop_name")
+                
+            await send_status_card(reply_token, display_name, plan, shop_name)
+            return
+
     # 1. Check if it fits the pairing format
     cleaned_code = text.replace("FL-", "").strip()
     if not cleaned_code.isdigit() or len(cleaned_code) != 6:
@@ -596,6 +615,15 @@ async def handle_postback_action(line_user_id: str, data: str, reply_token: str)
         except Exception as e:
             print(f"Error confirming receipt: {e}")
 
+    elif data.startswith("CONFIRM_TRANSACTION:"):
+        trans_id = data.replace("CONFIRM_TRANSACTION:", "")
+        try:
+            # Update status to completed
+            supabase.table("transactions").update({"status": "completed"}).eq("id", trans_id).execute()
+            await send_line_reply(reply_token, [{"type": "text", "text": "🟢 ยืนยันข้อมูลสลิปโอนเงินสำเร็จ! บันทึกธุรกรรมลงบัญชีเรียบร้อยแล้ว"}])
+        except Exception as e:
+            print(f"Error confirming transaction: {e}")
+
     elif data.startswith("SLIP_INCOME:") or data.startswith("SLIP_EXPENSE:"):
         is_income = data.startswith("SLIP_INCOME:")
         message_id = data.split(":")[1]
@@ -692,7 +720,6 @@ async def process_bank_slip_image(img_bytes: bytes, is_income: bool, user_id: st
         "amount": amount,
         "type": type_text,
         "category": category,
-        "is_tax_deductible": not is_income,
         "channel": "bank_slip",
         "note": f"สลิปอ้างอิง: {ref_id} ({bank})",
         "status": "pending_review",
@@ -810,5 +837,128 @@ async def process_bank_slip_image(img_bytes: bytes, is_income: bool, user_id: st
     await send_line_reply(reply_token, [{
         "type": "flex",
         "altText": "🤖 ตรวจจับสลิปโอนเงินเรียบร้อย (Fillax)",
+        "contents": flex_content
+    }])
+
+async def send_status_card(reply_token: str, display_name: str, plan: str, shop_name: str = None):
+    """Sends a gorgeous custom LINE Flex Message summarizing user status (similar to Paypers)."""
+    
+    plan_display = "FREE MEMBER" if plan == "free" else "PRO ACTIVE 👑" if plan == "pro" else "AGENCY ACTIVE 👑"
+    plan_color = "#8C66FF" if plan == "free" else "#10B981"
+    
+    shop_display = shop_name if shop_name else "❌ ยังไม่มีข้อมูลธุรกิจในระบบ"
+    shop_color = "#5A4A68" if shop_name else "#EF4444"
+    
+    flex_content = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#8C66FF",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📊 สถานะการบัญชีของคุณ (Fillax)",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "size": "md"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "สถานะการเชื่อมต่อและการลงทะเบียนทางภาษีของท่านในปัจจุบัน:",
+                    "wrap": True,
+                    "size": "sm",
+                    "color": "#5A4A68"
+                },
+                {
+                    "type": "separator",
+                    "margin": "md"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "margin": "md",
+                    "contents": [
+                        {"type": "text", "text": "👤 ชื่อ LINE:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
+                        {"type": "text", "text": str(display_name), "size": "sm", "weight": "bold", "color": "#5A4A68", "flex": 3.8, "wrap": True}
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "🏢 ข้อมูลธุรกิจ:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
+                        {"type": "text", "text": str(shop_display), "size": "sm", "weight": "bold", "color": shop_color, "flex": 3.8, "wrap": True}
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "👑 แผนสมาชิก:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
+                        {"type": "text", "text": str(plan_display), "size": "sm", "weight": "bold", "color": plan_color, "flex": 3.8}
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "🟢 ซิงก์คลาวด์:", "size": "sm", "color": "#7a7a7a", "flex": 2.2},
+                        {"type": "text", "text": "เชื่อมต่อแล้ว 🟢", "size": "sm", "weight": "bold", "color": "#10B981", "flex": 3.8}
+                    ]
+                },
+                {
+                    "type": "separator",
+                    "margin": "md"
+                },
+                {
+                    "type": "text",
+                    "text": "💡 แนะนำให้กรอกข้อมูลธุรกิจบนเว็บบอร์ดเพื่อเปิดใช้ฟีเจอร์ดึงข้อมูล DBD อัจฉริยะและบันทึกรายงานภาษี มค.๑ ได้สมบูรณ์ที่สุด",
+                    "wrap": True,
+                    "size": "xs",
+                    "color": "#7a7a7a",
+                    "margin": "md"
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "contents": [
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "uri",
+                        "label": "✍️ กรอกข้อมูลธุรกิจบนเว็บ",
+                        "uri": "https://fillax.vercel.app/settings"
+                    },
+                    "style": "primary",
+                    "color": "#8C66FF"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "uri",
+                        "label": "👑 อัปเกรดระดับบัญชี",
+                        "uri": "https://fillax.vercel.app/settings"
+                    },
+                    "style": "secondary",
+                    "color": "#10B981" if plan == "free" else "#8C66FF"
+                }
+            ]
+        }
+    }
+    
+    await send_line_reply(reply_token, [{
+        "type": "flex",
+        "altText": "📊 สถานะการบัญชีของคุณ (Fillax)",
         "contents": flex_content
     }])

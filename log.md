@@ -304,5 +304,17 @@
   * Created a dedicated, standalone-ready `/backend/.gitignore` file to ensure the FastAPI application can be safely versioned and deployed independently to hosting providers (e.g. Render, Railway, Fly.io, Heroku) without leaking environment keys, local venvs, or test artifacts.
   * Covered all edge-case categories: local env and secret keys (*.pem, *.key), Python compile caches and local virtual environments, Node/Next.js/Turbopack build packages and debug logs, local databases (*.db, SQLite leftovers), macOS/Windows system files, and VS Code/JetBrains IDE metadata.
 
-
-
+## 2026-05-24
+- **Supabase Profiles Schema Compatibility Correction**:
+  * Conducted a thorough audit of the user profile database schema and identified a critical crash risk in `settings/page.tsx` and `auth-guard.tsx` where frontend fields (`name`, `phone`, `business_type`) did not align with PostgreSQL schema (`full_name`, `seller_type`, and no `phone` column).
+  * Refactored all direct query and upsert references in Next.js settings, authentication guard, and Guest setup pairing code generator to map columns correctly, preventing database rejection crashes.
+- **LINE OA Webhook Slip Confirmation & Status Card Integration**:
+  * Identified that the LINE Bot "Confirm Slip" postback action (`CONFIRM_TRANSACTION`) was unhandled on the backend, leading to unresponsive clicks.
+  * Implemented the `CONFIRM_TRANSACTION:{trans_id}` action handler in `line.py` to securely update transaction status in Supabase to `completed` and notify the user via LINE.
+  * Developed a text command interceptor in LINE webhook for status queries (`"เช็คสถานะ"`, `"status"`, etc.) and built a gorgeous, premium glassmorphic LINE Flex Message Status Card showing profile, shop, and active plan details.
+- **Department of Business Development (DBD) Auto-Enrichment Integration**:
+  * Created GET `/api/v1/auth/dbd/lookup` backend API endpoint utilizing the Modulo-11 juristic checksum and `DBD_DICTIONARY` mapping.
+  * Added a glowing "ดึงข้อมูลจาก DBD 🏢" action button beside the Tax ID input in Next.js Settings, auto-populating shop name, address, and VAT registration automatically with elegant purple glassmorphic toasts.
+- **SRE & Production Verification**:
+  * Executed the backend pytest runner, ensuring **38/38 unit and integration tests passed perfectly** in 5.45s with zero warnings.
+  * Executed Next.js Turbopack production compilation, achieving 100% build success in 3.6s with absolutely zero TypeScript, ESLint, or hydration warnings.

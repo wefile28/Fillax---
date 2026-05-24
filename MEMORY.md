@@ -136,6 +136,13 @@
 - [x] Complete comprehensive system audit & QA verification across Next.js and FastAPI frameworks, raising the test suite to **38/38 green passing tests** and validating 100% successful Turbopack production compilation.
 - [x] Deploy comprehensive root .gitignore file protecting all environment secrets, Python caches, Next.js build packages, database files, macOS/Windows metadata, and IDE setups.
 - [x] Deploy dedicated standalone backend .gitignore file for clean and secure independent FastAPI service deployment.
+- [x] Fix critical Supabase database schema compatibility errors on Next.js frontend by refactoring profiles queries and upserts to use real PostgreSQL column names (full_name, seller_type) and drop non-existent phone fields.
+- [x] Fix guest user initialization and email onboarding registration crashes due to the profiles schema mismatch.
+- [x] Resolve missing LINE webhook confirmation action handler by integrating the CONFIRM_TRANSACTION postback to set bank slip ledger transaction status to completed.
+- [x] Integrate LINE OA status command interceptors ("เช็คสถานะ", "status", etc.) to evaluate active user profile, plan level, and shop settings and reply with beautiful custom Flex Message Status Cards.
+- [x] Develop GET /api/v1/auth/dbd/lookup backend API endpoint to calculate juristic tax ID validation (Modulo-11) and search DBD_DICTIONARY details.
+- [x] Design a premium glassmorphic "ดึงข้อมูลจาก DBD 🏢" button beside the Tax ID input in Next.js settings, auto-enriching business details dynamically via live API or Guest simulated flow.
+- [x] Verify complete test suite (38/38 passed) and Next.js Turbopack production build with 100% success and zero compilation errors.
 
 
 

@@ -146,9 +146,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         if (data?.user) {
           await supabase.from("profiles").upsert({
             id: data.user.id,
-            name: email.split("@")[0],
-            phone: "",
-            business_type: "individual",
+            full_name: email.split("@")[0],
+            seller_type: "individual",
             plan: "free",
             updated_at: new Date().toISOString()
           }, { onConflict: "id" });

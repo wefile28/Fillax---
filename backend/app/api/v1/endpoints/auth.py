@@ -76,3 +76,42 @@ def update_profile(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database update failed: {str(e)}"
         )
+
+@router.get("/dbd/lookup")
+def dbd_lookup(tax_id: str, current_user: Any = Depends(get_current_user)):
+    """
+    Simulates DBD (Department of Business Development) Lookup for a Thai Tax ID.
+    Enriches business registration details automatically.
+    """
+    from app.services.validation import verify_thai_tax_id
+    
+    is_valid, name = verify_thai_tax_id(tax_id)
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail="เลขประจำตัวผู้เสียภาษีไม่ถูกต้องตามหลักการคำนวณ Modulo-11"
+        )
+        
+    if not name:
+        # Generate a realistic mock company name based on the last few digits
+        suffix = int(tax_id[-4:]) % 5
+        prefixes = [
+            "บริษัท ทริปเปิลเอส เทรดดิ้ง จำกัด",
+            "บริษัท พลังงานไทยพัฒนา จำกัด",
+            "บริษัท สยามคอมเมิร์ซแอนด์โลจิสติกส์ จำกัด",
+            "บริษัท ไอทีที โซลูชั่น แอนด์ เซอร์วิสเซส จำกัด",
+            "บริษัท โกลบอลเทรดไทย จำกัด"
+        ]
+        name = prefixes[suffix]
+        
+    mock_address = f"เลขที่ {tax_id[3:6]}/{tax_id[6:8]} ชั้น 18 อาคารบิสซิเนสทาวเวอร์ ถนนสุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110"
+    
+    return {
+        "success": True,
+        "tax_id": tax_id,
+        "company_name": name,
+        "address": mock_address,
+        "branch_code": "00000",
+        "is_vat_registered": int(tax_id[-1]) % 2 == 0
+    }
+

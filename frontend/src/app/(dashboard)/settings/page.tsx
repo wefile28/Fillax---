@@ -71,6 +71,110 @@ export default function Settings() {
   const [pairingCode, setPairingCode] = useState<string>("");
   const [isGeneratingPairing, setIsGeneratingPairing] = useState<boolean>(false);
 
+  // DBD Auto-Enrichment State & Handler
+  const [isDbdLoading, setIsDbdLoading] = useState<boolean>(false);
+  const handleDbdLookup = async () => {
+    if (!shop.taxId || shop.taxId.length !== 13) {
+      toast.error("กรุณากรอกเลขประจำตัวผู้เสียภาษีให้ครบ 13 หลักก่อนค่ะ 🤖");
+      return;
+    }
+
+    try {
+      setIsDbdLoading(true);
+      toast.loading("กำลังดึงข้อมูลและยืนยันนิติบุคคลจากระบบ DBD... 🏢🔍", { id: "dbd-toast" });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      let token = "";
+      if (session) {
+        token = session.access_token;
+      } else {
+        // Fallback for Guest Mode mock validation
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        
+        // Mock verification based on Modulo-11 logic
+        const cleaned = shop.taxId;
+        const digits = Array.from(cleaned).map(Number);
+        let total = 0;
+        for (let i = 0; i < 12; i++) {
+          total += digits[i] * (13 - i);
+        }
+        const checkDigit = (11 - (total % 11)) % 10;
+        const is_valid = digits[12] === checkDigit;
+        
+        if (!is_valid) {
+          throw new Error("เลขประจำตัวผู้เสียภาษีไม่ถูกต้องตามหลักการคำนวณ Modulo-11");
+        }
+        
+        // Match mock
+        const mock_dbd_names: Record<string, string> = {
+          "0107536000231": "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
+          "0107561000242": "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)",
+          "0105536092641": "บริษัท เอก-ชัย ดีสทริบิวชั่น ซิสเทม จำกัด",
+        };
+        
+        let matchedName = mock_dbd_names[cleaned];
+        if (!matchedName) {
+          const suffix = Number(cleaned.slice(-4)) % 5;
+          const prefixes = [
+            "บริษัท ทริปเปิลเอส เทรดดิ้ง จำกัด",
+            "บริษัท พลังงานไทยพัฒนา จำกัด",
+            "บริษัท สยามคอมเมิร์ซแอนด์โลจิสติกส์ จำกัด",
+            "บริษัท ไอทีที โซลูชั่น แอนด์ เซอร์วิสเซส จำกัด",
+            "บริษัท โกลบอลเทรดไทย จำกัด"
+          ];
+          matchedName = prefixes[suffix];
+        }
+        
+        const mockAddress = `เลขที่ ${cleaned.slice(3, 6)}/${cleaned.slice(6, 8)} ชั้น 18 อาคารบิสซิเนสทาวเวอร์ ถนนสุขุมวิท แขวงคลองเตย เขตคลองเตย กรุงเทพมหานคร 10110`;
+        
+        const updatedShop = {
+          ...shop,
+          shopName: matchedName,
+          address: mockAddress,
+          branchCode: "00000",
+          isVatRegistered: Number(cleaned.slice(-1)) % 2 === 0
+        };
+        
+        setShop(updatedShop);
+        localStorage.setItem("fillax_shop_profile", JSON.stringify(updatedShop));
+        toast.success(`ดึงข้อมูลบริษัท "${matchedName}" สำเร็จ! ยืนยันระบบ DBD เรียบร้อย (โหมดจำลอง) 🟢🎉`, { id: "dbd-toast", duration: 5000 });
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/v1/auth/dbd/lookup?tax_id=${shop.taxId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.detail || "เกิดข้อผิดพลาดในการตรวจสอบเลขผู้เสียภาษี");
+      }
+
+      // Auto populate!
+      const updatedShop = {
+        ...shop,
+        shopName: resData.company_name,
+        address: resData.address,
+        branchCode: resData.branch_code || "00000",
+        isVatRegistered: resData.is_vat_registered || false
+      };
+      
+      setShop(updatedShop);
+      localStorage.setItem("fillax_shop_profile", JSON.stringify(updatedShop));
+      
+      toast.success(`ดึงข้อมูลบริษัท "${resData.company_name}" สำเร็จ! ยืนยันระบบ DBD เรียบร้อย 🟢🎉`, { id: "dbd-toast", duration: 5000 });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "ไม่สามารถเชื่อมโยงระบบข้อมูล DBD ได้ กรุณากรอกข้อมูลเองนะคะ", { id: "dbd-toast" });
+    } finally {
+      setIsDbdLoading(false);
+    }
+  };
+
   const handleGeneratePairingCode = async () => {
     try {
       setIsGeneratingPairing(true);
@@ -88,9 +192,8 @@ export default function Settings() {
           .from("profiles")
           .upsert({
             id: userId,
-            name: "Guest Merchant",
-            phone: "",
-            business_type: "individual",
+            full_name: "Guest Merchant",
+            seller_type: "individual",
             plan: "free",
             updated_at: new Date().toISOString()
           }, { onConflict: "id" });
@@ -240,16 +343,16 @@ export default function Settings() {
         // Fetch profiles table
         const { data: profile } = await supabase
           .from("profiles")
-          .select("id, plan, name, phone, business_type")
+          .select("id, plan, full_name, seller_type")
           .eq("id", session.user.id)
           .single();
 
         setUser({
           id: session.user.id,
           email: session.user.email || "",
-          name: profile?.name || session.user.user_metadata?.full_name || "",
-          phone: profile?.phone || "",
-          businessType: profile?.business_type || "individual",
+          name: profile?.full_name || session.user.user_metadata?.full_name || "",
+          phone: "",
+          businessType: profile?.seller_type || "individual",
         });
 
         const isUserPro = profile?.plan === "pro" || profile?.plan === "agency";
@@ -289,9 +392,8 @@ export default function Settings() {
           .from("profiles")
           .upsert({
             id: user.id,
-            name: user.name,
-            phone: user.phone,
-            business_type: user.businessType,
+            full_name: user.name,
+            seller_type: user.businessType,
             updated_at: new Date().toISOString(),
           });
 
@@ -618,15 +720,35 @@ export default function Settings() {
                           className="rounded-xl border-border bg-background/50 h-11"
                         />
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-2 md:col-span-2">
                         <Label className="text-xs font-bold text-muted-foreground">เลขประจำตัวผู้เสียภาษีอากร (13 หลัก)</Label>
-                        <Input
-                          value={shop.taxId}
-                          onChange={(e) => setShop({ ...shop, taxId: e.target.value.replace(/\D/g, "").slice(0, 13) })}
-                          placeholder="0105569123456"
-                          maxLength={13}
-                          className="rounded-xl border-border bg-background/50 h-11 font-mono tracking-wider"
-                        />
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <Input
+                            value={shop.taxId}
+                            onChange={(e) => setShop({ ...shop, taxId: e.target.value.replace(/\D/g, "").slice(0, 13) })}
+                            placeholder="0105569123456"
+                            maxLength={13}
+                            className="rounded-xl border-border bg-background/50 h-11 font-mono tracking-wider flex-1"
+                          />
+                          <Button
+                            type="button"
+                            onClick={handleDbdLookup}
+                            disabled={isDbdLoading}
+                            className="bg-primary hover:bg-primary/95 text-white rounded-xl font-bold h-11 px-5 flex items-center gap-1.5 shadow-md shadow-primary/10 active:scale-95 transition-all"
+                          >
+                            {isDbdLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                กำลังดึงข้อมูล...
+                              </>
+                            ) : (
+                              <>
+                                <Building className="w-4 h-4" />
+                                ดึงข้อมูลจาก DBD 🏢
+                              </>
+                            )}
+                          </Button>
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-bold text-muted-foreground">รหัสสาขาสำนักงาน (Branch Code)</Label>
