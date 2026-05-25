@@ -1,6 +1,10 @@
 # Activity History - Fillax
 
 ## 2026-05-24
+- **TypeScript Type Hardening & Strict Compile (Phase 3)**:
+  * Resolved a TypeScript compiler type mismatch error in [store.ts](file:///d:/Fillax---/frontend/src/lib/store.ts) where the `nextId` helper function signature restricted inputs to `{ id: number }[]`, but was passed `Receipt[]` containing ID as `number | string` (essential for Supabase UUID compatibility).
+  * Refactored `nextId` to gracefully map and parse both numeric and string-based IDs, standardizing behavior with `nextTransactionId` and achieving 100% clean production compilation.
+  * Verified Next.js optimized production build completes successfully with zero ESLint or compiler warnings/errors.
 - **Atomic Payment Claims & Domain Isolation (P1 & P2)**:
   * Deployed a dedicated `payment_claims` table with strict database-level `ref_id UNIQUE` and `file_hash UNIQUE` constraints to mitigate dual-request race conditions and prevent double-spending 100%.
   * Completely removed global partial unique indexes (`idx_receipts_file_url_hash` and `idx_receipts_file_url_ref`) from the `receipts` table in [schema.sql](file:///d:/Fillax---/backend/app/db/schema.sql) to isolate domains and prevent duplicate normal receipts uploaded by different users from crashing with 500 errors.

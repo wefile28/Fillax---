@@ -46,6 +46,7 @@ async def upgrade_user_plan(
     """
     Secure checkout upgrades with real Omise payment gateway verification.
     """
+    import uuid
     if not supabase:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -91,6 +92,9 @@ async def upgrade_user_plan(
     # Secure logging of the payment capture event
     print(f"[SECURITY_PAYMENT] Payment checkout for user {current_user.id}: {payment.amount} THB via {payment.method.upper()} for plan {payment.plan.upper()}")
 
+    charge_id_val = ""
+    charge_status = ""
+
     if settings.OMISE_SECRET_KEY and not is_simulated:
         try:
             # Execute real payment gateway capture via Omise Python API
@@ -111,21 +115,8 @@ async def upgrade_user_plan(
                     detail=f"Payment rejected by Omise: {charge.failure_message}"
                 )
                 
-            # PromptPay Asynchronous pending charge handling (P1 Pending Guard)
-            if payment.method == "promptpay" and charge.status == "pending":
-                return {
-                    "status": "pending",
-                    "message": "สร้างรายการชำระเงินพร้อมเพย์สำเร็จ กรุณาสแกนคิวอาร์โค้ดเพื่อชำระเงิน ระบบจะเปิดใช้งานแผนบริการให้คุณโดยอัตโนมัติทันทีที่ชำระเงินเสร็จสิ้น ⏳",
-                    "charge_id": charge.id,
-                    "plan": payment.plan
-                }
-                
-            # If credit card and not successful
-            if payment.method == "credit_card" and charge.status != "successful":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"การชำระเงินผ่านบัตรเครดิตไม่สำเร็จ (สถานะ: {charge.status})"
-                )
+            charge_id_val = charge.id
+            charge_status = charge.status
         except HTTPException:
             raise
         except Exception as e:
@@ -137,30 +128,114 @@ async def upgrade_user_plan(
         # Simulate delay for testing sandbox flows
         import asyncio
         await asyncio.sleep(1)
+        charge_id_val = f"chrg_sim_{uuid.uuid4().hex[:16]}"
+        charge_status = "pending" if payment.method == "promptpay" else "successful"
 
+    # Step 1: Create a pending payment claim in the database (P2 Production Intent Hardening)
     try:
-        # Set subscription expiration timestamp to 30 days from now
-        plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
-        
-        # Update user's profile record with the paid plan level and expiry date
-        res = supabase.table("profiles").update({
+        claim_data = {
+            "user_id": str(current_user.id),
+            "charge_id": charge_id_val,
             "plan": payment.plan,
-            "plan_expires_at": plan_expires_at,
-            "updated_at": "now()"
-        }).eq("id", current_user.id).execute()
-        
-        return {
-            "status": "success",
-            "message": f"Payment successfully processed via {payment.method.upper()}! Upgraded to {payment.plan.upper()}.",
-            "plan": payment.plan,
-            "plan_expires_at": plan_expires_at,
-            "user_id": current_user.id
+            "amount": payment.amount,
+            "status": "pending",
+            "claim_source": "omise"
         }
-    except Exception as e:
+        claim_res = supabase.table("payment_claims").insert(claim_data).execute()
+        if not claim_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="ไม่สามารถลงทะเบียนธุรกรรมจองสิทธิ์ชำระเงินในระบบได้"
+            )
+        claim_id = claim_res.data[0]["id"]
+    except HTTPException:
+        raise
+    except Exception as db_err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to upgrade user profile: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database payment reservation error: {str(db_err)}"
         )
+
+    # Step 2: Handle PromptPay Asynchronous pending QR flow
+    if payment.method == "promptpay" and charge_status == "pending":
+        return {
+            "status": "pending",
+            "message": "สร้างรายการชำระเงินพร้อมเพย์สำเร็จ กรุณาสแกนคิวอาร์โค้ดเพื่อชำระเงิน ระบบจะเปิดใช้งานแผนบริการให้คุณโดยอัตโนมัติทันทีที่ชำระเงินเสร็จสิ้น ⏳",
+            "charge_id": charge_id_val,
+            "plan": payment.plan
+        }
+
+    # Step 3: Handle credit card or simulated successful upgrades instantly
+    if charge_status == "successful" or (payment.method == "credit_card" and is_simulated):
+        try:
+            # 1. Insert main expense receipt
+            receipt_res = supabase.table("receipts").insert({
+                "user_id": str(current_user.id),
+                "file_name": f"omise_receipt_{charge_id_val}.txt",
+                "file_url": f"payment_claim:{charge_id_val}",
+                "file_size": 0,
+                "mime_type": "text/plain",
+                "vendor": "FILLAX CO., LTD.",
+                "amount": payment.amount,
+                "date": datetime.utcnow().strftime("%Y-%m-%d"),
+                "category": "ค่าซอฟต์แวร์/บริการดิจิทัล",
+                "description": f"ชำระค่าบริการระบบ FILLAX แพลน {payment.plan.upper()} อัตโนมัติ (Omise Charge ID: {charge_id_val})",
+                "seller_tax_id": "0107561000242",
+                "is_dbd_verified": True,
+                "dbd_company_name": "บริษัท ฟิลแลกซ์ จำกัด (มหาชน)",
+                "status": "completed",
+                "source": "payment"
+            }).execute()
+            
+            if not receipt_res.data:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create payment receipt."
+                )
+            
+            receipt_id = receipt_res.data[0]["id"]
+            
+            # 2. Update payment claims status to completed
+            supabase.table("payment_claims").update({
+                "status": "completed",
+                "receipt_id": receipt_id,
+                "processed_at": "now()"
+            }).eq("id", claim_id).execute()
+            
+            # 3. Update user subscription profile plan
+            plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+            supabase.table("profiles").update({
+                "plan": payment.plan,
+                "plan_expires_at": plan_expires_at,
+                "updated_at": "now()"
+            }).eq("id", current_user.id).execute()
+            
+            return {
+                "status": "success",
+                "message": f"Payment successfully processed via {payment.method.upper()}! Upgraded to {payment.plan.upper()}.",
+                "plan": payment.plan,
+                "plan_expires_at": plan_expires_at,
+                "user_id": current_user.id
+            }
+        except Exception as e:
+            # Rollback: Clean up and set claim status to failed
+            print(f"[SECURITY_PAYMENT_FAIL] Rollback credit card upgrade for user {current_user.id}: {e}")
+            try:
+                supabase.table("payment_claims").update({"status": "failed"}).eq("id", claim_id).execute()
+                if 'receipt_id' in locals():
+                    supabase.table("receipts").delete().eq("id", receipt_id).execute()
+            except Exception as rb_err:
+                print(f"[ROLLBACK_FAIL] Credit card rollback error: {rb_err}")
+                
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"การชำระเงินขัดข้อง (ระบบย้อนกลับการจองสิทธิ์แล้ว): {str(e)}"
+            )
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"ไม่สามารถดำเนินการชำระเงินผ่านระบบ {payment.method.upper()} ได้ในขณะนี้ (สถานะ: {charge_status})"
+    )
 
 @router.get("/verify-status")
 async def verify_payment_status(current_user: Any = Depends(get_current_user)):
@@ -258,8 +333,9 @@ async def omise_webhook(request: Request):
             plan_type = metadata.get("plan", "pro")
             amount_val = data.get("amount")  # in satangs, e.g. 19900
             currency_val = str(data.get("currency", "")).lower()
+            charge_id = data.get("id")
             
-            if status_val == "successful" and user_id:
+            if status_val == "successful" and user_id and charge_id:
                 # Webhook plan, amount, and currency validation (P2 security hardening)
                 if plan_type not in ["pro", "agency"]:
                     print(f"[SECURITY_WEBHOOK_WARNING] Ignore upgrade for user {user_id}: Invalid plan '{plan_type}' in metadata.")
@@ -278,18 +354,85 @@ async def omise_webhook(request: Request):
                 if amount_val != expected_satangs:
                     print(f"[SECURITY_WEBHOOK_WARNING] Ignore upgrade for user {user_id}: Amount mismatch for plan '{plan_type}'. Expected {expected_satangs} satangs, got {amount_val} satangs.")
                     return {"status": "ignored", "detail": "Amount mismatch"}
+
+                # Query database for existing payment claim (P2 Webhook Intent/Claim Matching)
+                claim_res = supabase.table("payment_claims").select("*").eq("charge_id", charge_id).execute()
                 
-                # Set subscription expiration timestamp to 30 days from now
-                plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+                claim_id = None
+                receipt_id = None
                 
-                # Update user subscription plan to the paid plan level
-                supabase.table("profiles").update({
-                    "plan": plan_type,
-                    "plan_expires_at": plan_expires_at,
-                    "updated_at": "now()"
-                }).eq("id", user_id).execute()
-                print(f"[OMISE_WEBHOOK] Successfully verified and upgraded user {user_id} to plan {plan_type.upper()} expiring at {plan_expires_at}")
-                return {"status": "success", "message": "Subscription updated successfully"}
+                if claim_res.data and len(claim_res.data) > 0:
+                    claim = claim_res.data[0]
+                    # Verify status is still pending to avoid re-upgrade attacks
+                    if claim.get("status") != "pending":
+                        print(f"[OMISE_WEBHOOK] Claim for charge {charge_id} already processed. Ignore.")
+                        return {"status": "ignored", "message": "Claim already processed"}
+                    
+                    claim_id = claim.get("id")
+                    user_id = claim.get("user_id")
+                    plan_type = claim.get("plan")
+                
+                try:
+                    # 1. Create a clean receipt record for this payment
+                    receipt_res = supabase.table("receipts").insert({
+                        "user_id": str(user_id),
+                        "file_name": f"omise_receipt_{charge_id}.txt",
+                        "file_url": f"payment_claim:{charge_id}",
+                        "file_size": 0,
+                        "mime_type": "text/plain",
+                        "vendor": "FILLAX CO., LTD.",
+                        "amount": float(amount_val) / 100.0,
+                        "date": datetime.utcnow().strftime("%Y-%m-%d"),
+                        "category": "ค่าซอฟต์แวร์/บริการดิจิทัล",
+                        "description": f"ชำระค่าบริการระบบ FILLAX แพลน {plan_type.upper()} อัตโนมัติ (Omise Webhook ID: {charge_id})",
+                        "seller_tax_id": "0107561000242",
+                        "is_dbd_verified": True,
+                        "dbd_company_name": "บริษัท ฟิลแลกซ์ จำกัด (มหาชน)",
+                        "status": "completed",
+                        "source": "payment"
+                    }).execute()
+                    
+                    if receipt_res.data:
+                        receipt_id = receipt_res.data[0]["id"]
+                    
+                    # 2. Update claim status to completed or insert new claim for auditing
+                    if claim_id:
+                        supabase.table("payment_claims").update({
+                            "status": "completed",
+                            "receipt_id": receipt_id,
+                            "processed_at": "now()"
+                        }).eq("id", claim_id).execute()
+                    else:
+                        # Fallback audit claim insertion
+                        supabase.table("payment_claims").insert({
+                            "user_id": str(user_id),
+                            "charge_id": charge_id,
+                            "plan": plan_type,
+                            "amount": float(amount_val) / 100.0,
+                            "status": "completed",
+                            "receipt_id": receipt_id,
+                            "claim_source": "omise",
+                            "processed_at": "now()"
+                        }).execute()
+                        
+                    # 3. Update user subscription plan to the paid plan level
+                    plan_expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+                    supabase.table("profiles").update({
+                        "plan": plan_type,
+                        "plan_expires_at": plan_expires_at,
+                        "updated_at": "now()"
+                    }).eq("id", user_id).execute()
+                    
+                    print(f"[OMISE_WEBHOOK] Successfully verified, recorded and upgraded user {user_id} to plan {plan_type.upper()} expiring at {plan_expires_at}")
+                    return {"status": "success", "message": "Subscription updated successfully"}
+                except Exception as db_err:
+                    print(f"[OMISE_WEBHOOK_ERROR] Database operation failed during webhook: {db_err}")
+                    # Attempt rollback
+                    if claim_id:
+                        supabase.table("payment_claims").update({"status": "failed"}).eq("id", claim_id).execute()
+                    if receipt_id:
+                        supabase.table("receipts").delete().eq("id", receipt_id).execute()
+                    raise db_err
                 
         return {"status": "ignored"}
     except Exception as e:
@@ -503,13 +646,15 @@ async def verify_slip(
         try:
             ref_id_str = ref_id or "N/A"
             
-            # 1. Insert to payment_claims table first to lock the transaction level
+            # 1. Insert to payment_claims table first with pending status and claim_source='slip'
             claim_data = {
                 "user_id": str(current_user.id),
                 "ref_id": ref_id, # Can be None if not found, unique constraint allows multiple NULLs
                 "file_hash": file_hash,
                 "plan": target_plan,
-                "amount": amount
+                "amount": amount,
+                "status": "pending",
+                "claim_source": "slip"
             }
             claim_res = supabase.table("payment_claims").insert(claim_data).execute()
             
@@ -551,6 +696,13 @@ async def verify_slip(
                 )
                 
             receipt_id = main_res.data[0]["id"]
+            
+            # 3. Update payment claims status to completed and processed
+            supabase.table("payment_claims").update({
+                "status": "completed",
+                "receipt_id": receipt_id,
+                "processed_at": "now()"
+            }).eq("id", claim_id).execute()
             
         except HTTPException:
             raise

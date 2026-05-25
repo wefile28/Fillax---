@@ -51,8 +51,11 @@ function saveToStorage<T>(key: string, data: T[]): void {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
-function nextId<T extends { id: number }>(items: T[]): number {
-  return items.length === 0 ? 1 : Math.max(...items.map((i) => i.id)) + 1;
+function nextId<T extends { id: number | string }>(items: T[]): number {
+  const numericIds = items
+    .map((item) => typeof item.id === "number" ? item.id : parseInt(item.id as string, 10))
+    .filter((id) => !isNaN(id));
+  return numericIds.length > 0 ? Math.max(...numericIds) + 1 : 1;
 }
 
 function nextTransactionId(items: Transaction[]): number {
@@ -105,13 +108,13 @@ export function createReceipt(
   return newItem;
 }
 
-export function deleteReceipt(id: number): void {
+export function deleteReceipt(id: number | string): void {
   const items = getReceipts().filter((r) => r.id !== id);
   saveToStorage(STORAGE_KEYS.receipts, items);
 }
 
 export function updateReceipt(
-  id: number,
+  id: number | string,
   data: Partial<Omit<Receipt, "id" | "createdAt">>
 ): void {
   const items = getReceipts();

@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getReceipts, createReceipt, deleteReceipt, updateReceipt } from "@/lib/store";
+import { getReceipts, deleteReceipt, updateReceipt } from "@/lib/store";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -559,7 +559,7 @@ export default function Receipts() {
           const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
           const filePath = `${session.user.id}/${fileName}`;
           
-          const { data: uploadData, error: uploadError } = await supabase.storage
+          const { error: uploadError } = await supabase.storage
             .from("receipts")
             .upload(filePath, selectedFile);
             
@@ -584,7 +584,7 @@ export default function Receipts() {
               vendor: formData.vendor,
               amount: formData.amount ? parseFloat(formData.amount) : null,
               date: `${formData.year}-${String(formData.month).padStart(2, "0")}-${String(formData.day).padStart(2, "0")}`,
-              category: formData.category || "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+              category: "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
               description: formData.description,
               seller_tax_id: formData.sellerTaxId || null,
               is_dbd_verified: formData.isDbdVerified || false,

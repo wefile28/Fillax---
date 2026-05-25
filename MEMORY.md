@@ -151,6 +151,7 @@
 - [x] Implement strict server-side webhook validators (validating plan, THB currency, and correct amount in satangs).
 - [x] Secure client-side Pro subscription elevation in Next.js to trigger only upon successfully verified direct success API responses.
 - [x] Correct indentation syntax error in `ai.py` and verify all 38 pytest backend tests pass cleanly.
+- [x] Fix TypeScript type mismatch in `store.ts` (`nextId` function signature) to enable clean optimized Next.js production builds.
 
 
 
