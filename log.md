@@ -1,5 +1,13 @@
 # Activity History - Fillax
 
+## 2026-05-26
+- **LINE Bot User Review & Verification Hardening (Phase 4)**:
+  * Resolved a crucial typo in CP ALL's (7-Eleven) hardcoded Tax ID (`0107536000231` -> `0107542000011`) across the backend ([line.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/line.py), [receipts.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/receipts.py), [validation.py](file:///d:/Fillax---/backend/app/services/validation.py)) and frontend ([settings/page.tsx](file:///d:/Fillax---/frontend/src/app/(dashboard)/settings/page.tsx)). Correcting this allows CP ALL's 7-Eleven receipts to successfully pass Modulo-11 checksum validation and display the gorgeous, premium **"DBD VERIFIED 🟢"** status.
+  * Refactored hardcoded production URLs (`https://fillax.vercel.app`) inside the LINE Flex Message buttons to dynamically leverage the environment-derived `settings.FRONTEND_URL` (resolving to local `http://localhost:3000` during development).
+  * This guarantees that when a user clicks the **"✍️ แก้ไขข้อมูลบนเว็บ"** review button from within the LINE app, the LINE in-app webview immediately loads their local Next.js workspace and opens the glassmorphic Edit Form Modal overlay directly inside their LINE chat screen.
+  * Integrated **real Supabase Storage image uploads** inside the LINE Bot webhook ([line.py](file:///d:/Fillax---/backend/app/api/v1/endpoints/line.py)). When users upload a receipt in LINE, it uploads the binary directly to their Supabase Storage bucket `receipts` at path `{user_id}/{file_name}`, generating a dynamic public URL. This completely eliminates the broken receipt image layout on the `/receipts` web dashboard!
+  * Implemented **automatic Transaction logging** on LINE receipt confirmation (`CONFIRM_RECEIPT` postback). Clicking `"🟢 ยืนยันข้อมูลถูกต้อง"` on LINE now automatically inserts a corresponding expense Transaction entry into the `transactions` table, complete with double-click deduplication checking. This makes the uploaded expense instantly reflect on the main Dashboard total income, total expenses, net profit figures, and monthly charts!
+
 ## 2026-05-24
 - **TypeScript Type Hardening & Strict Compile (Phase 3)**:
   * Resolved a TypeScript compiler type mismatch error in [store.ts](file:///d:/Fillax---/frontend/src/lib/store.ts) where the `nextId` helper function signature restricted inputs to `{ id: number }[]`, but was passed `Receipt[]` containing ID as `number | string` (essential for Supabase UUID compatibility).

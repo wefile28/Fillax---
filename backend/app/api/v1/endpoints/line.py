@@ -263,15 +263,19 @@ async def handle_image_upload(line_user_id: str, message_id: str, reply_token: s
         # Generate unique file name
         import uuid
         file_name = f"line_{line_user_id}_{uuid.uuid4().hex[:10]}.jpg"
-        file_path = f"receipts/{file_name}"
+        file_path = f"{user_id}/{file_name}"
         
-        # Save to receipts bucket
-        # Supabase Python SDK upload binary
-        # We can mock/store url path or upload via API request
-        # For seamless out of box, we construct a dummy public URL representing it, and save the binary locally or bypass if needed.
-        # Let's save standard storage upload:
-        # For simplicity, we write it as a base64 or upload to Supabase Storage
-        file_url = f"https://fillax-storage.supabase.co/storage/v1/object/public/receipts/{file_name}"
+        # Upload actual receipt image to user's Supabase Storage bucket
+        try:
+            supabase.storage.from_("receipts").upload(
+                path=file_path,
+                file=img_bytes,
+                file_options={"content-type": "image/jpeg"}
+            )
+            file_url = supabase.storage.from_("receipts").get_public_url(file_path)
+        except Exception as storage_err:
+            print(f"[STORAGE_UPLOAD_ERROR] Failed to upload image to Supabase Storage: {storage_err}")
+            file_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/receipts/{file_path}"
         
         # Call Anthropic Claude Visual AI to classify if it's a Bank Transfer Slip or Receipt
         if not settings.ANTHROPIC_API_KEY:
@@ -379,7 +383,7 @@ async def process_receipt_image(img_bytes: bytes, file_url: str, user_id: str, r
                 "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                 "category": "ต้นทุนสินค้า/วัตถุดิบ",
                 "description": "ซื้อบะหมี่กึ่งสำเร็จรูปและน้ำดื่ม (โหมดจำลอง LINE Bot)",
-                "seller_tax_id": "0107536000231"
+                "seller_tax_id": "0107542000011"
             },
             {
                 "vendor": "Cafe Amazon",
@@ -598,7 +602,7 @@ async def process_receipt_image(img_bytes: bytes, file_url: str, user_id: str, r
                     "action": {
                         "type": "uri",
                         "label": "✍️ แก้ไขข้อมูลบนเว็บ",
-                        "uri": f"https://fillax.vercel.app/receipts?review={inserted_id}"
+                        "uri": f"{settings.FRONTEND_URL}/receipts?review={inserted_id}"
                     },
                     "style": "secondary",
                     "color": "#8C66FF"
@@ -624,9 +628,36 @@ async def handle_postback_action(line_user_id: str, data: str, reply_token: str)
     if data.startswith("CONFIRM_RECEIPT:"):
         receipt_id = data.replace("CONFIRM_RECEIPT:", "")
         try:
-            # Update status to completed
-            supabase.table("receipts").update({"status": "completed"}).eq("id", receipt_id).execute()
-            await send_line_reply(reply_token, [{"type": "text", "text": "🟢 ขอบคุณสำหรับการยืนยัน! บันทึกข้อมูลเข้าระบบเรียบร้อยแล้ว"}])
+            # 1. Update receipt status to completed
+            rec_res = supabase.table("receipts").update({"status": "completed"}).eq("id", receipt_id).execute()
+            
+            # 2. Automatically log as an active transaction for the Dashboard calculations
+            if rec_res.data and len(rec_res.data) > 0:
+                receipt = rec_res.data[0]
+                
+                # Check for existing transaction to prevent double confirmation race conditions
+                existing_tx = supabase.table("transactions")\
+                    .select("id")\
+                    .eq("user_id", user_id)\
+                    .eq("note", f"สลักจากใบเสร็จ ID: {receipt_id}")\
+                    .execute()
+                    
+                if not (existing_tx.data and len(existing_tx.data) > 0):
+                    supabase.table("transactions").insert({
+                        "user_id": user_id,
+                        "date": receipt.get("date") or datetime.utcnow().strftime("%Y-%m-%d"),
+                        "name": receipt.get("vendor") or "รายจ่ายจากใบเสร็จ (LINE)",
+                        "amount": float(receipt.get("amount") or 0.0) if receipt.get("amount") else 0.0,
+                        "type": "expense",
+                        "category": receipt.get("category") or "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+                        "is_tax_deductible": True,
+                        "channel": "other",
+                        "note": f"สลักจากใบเสร็จ ID: {receipt_id}",
+                        "status": "completed",
+                        "source": "line_bot"
+                    }).execute()
+                    
+            await send_line_reply(reply_token, [{"type": "text", "text": "🟢 ขอบคุณสำหรับการยืนยัน! บันทึกข้อมูลใบเสร็จและลงสมุดบัญชีรายรับ-รายจ่ายเรียบร้อยแล้ว (ตัวเลขบนหน้า Dashboard จะอัปเดตทันที) 📈"}])
         except Exception as e:
             print(f"Error confirming receipt: {e}")
 
@@ -840,7 +871,7 @@ async def process_bank_slip_image(img_bytes: bytes, is_income: bool, user_id: st
                     "action": {
                         "type": "uri",
                         "label": "✍️ แก้ไขข้อมูลบนเว็บ",
-                        "uri": f"https://fillax.vercel.app/transactions?review={trans_id}"
+                        "uri": f"{settings.FRONTEND_URL}/transactions?review={trans_id}"
                     },
                     "style": "secondary",
                     "color": "#8C66FF"
@@ -953,7 +984,7 @@ async def send_status_card(reply_token: str, display_name: str, plan: str, shop_
                     "action": {
                         "type": "uri",
                         "label": "✍️ กรอกข้อมูลธุรกิจบนเว็บ",
-                        "uri": "https://fillax.vercel.app/settings"
+                        "uri": f"{settings.FRONTEND_URL}/settings"
                     },
                     "style": "primary",
                     "color": "#8C66FF"
@@ -963,7 +994,7 @@ async def send_status_card(reply_token: str, display_name: str, plan: str, shop_
                     "action": {
                         "type": "uri",
                         "label": "👑 อัปเกรดระดับบัญชี",
-                        "uri": "https://fillax.vercel.app/settings"
+                        "uri": f"{settings.FRONTEND_URL}/settings"
                     },
                     "style": "secondary",
                     "color": "#10B981" if plan == "free" else "#8C66FF"

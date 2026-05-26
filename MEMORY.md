@@ -152,6 +152,10 @@
 - [x] Secure client-side Pro subscription elevation in Next.js to trigger only upon successfully verified direct success API responses.
 - [x] Correct indentation syntax error in `ai.py` and verify all 38 pytest backend tests pass cleanly.
 - [x] Fix TypeScript type mismatch in `store.ts` (`nextId` function signature) to enable clean optimized Next.js production builds.
+- [x] Correct CP ALL / 7-Eleven Tax ID typo (`0107536000231` -> `0107542000011`) globally to enable successful Modulo-11 DBD Verified badges.
+- [x] Refactor hardcoded production URLs in LINE Flex Message buttons to dynamically leverage `settings.FRONTEND_URL`, enabling seamless local webview edit overlays.
+- [x] Integrate real Supabase Storage image uploads inside the LINE Bot webhook, resolving broken receipt images.
+- [x] Implement automatic transaction logging upon LINE receipt confirmations, instantly reflecting figures in Dashboard.
 
 
 

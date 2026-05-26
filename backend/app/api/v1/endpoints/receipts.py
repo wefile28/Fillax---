@@ -97,7 +97,7 @@ async def async_process_ocr(
                     "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "category": "ต้นทุนสินค้า/วัตถุดิบ",
                     "description": "ซื้อบะหมี่กึ่งสำเร็จรูปและน้ำดื่มสำหรับแจกจ่ายพนักงาน (โหมดจำลองพิเศษเนื่องจากไม่ได้ใส่ ANTHROPIC_API_KEY)",
-                    "seller_tax_id": "0107536000231"
+                    "seller_tax_id": "0107542000011"
                 },
                 {
                     "vendor": "Cafe Amazon",
@@ -195,7 +195,7 @@ async def async_process_ocr(
         if not cleaned_tax_id and parsed_data.get("vendor"):
             vendor_lower = parsed_data["vendor"].lower()
             if "7-eleven" in vendor_lower or "seven" in vendor_lower or "ซีพี" in vendor_lower:
-                cleaned_tax_id = "0107536000231"
+                cleaned_tax_id = "0107542000011"
             elif "amazon" in vendor_lower or "cafe amazon" in vendor_lower:
                 cleaned_tax_id = "0107561000242"
             elif "lotus" in vendor_lower:
@@ -212,7 +212,7 @@ async def async_process_ocr(
                 is_dbd_verified = True
                 # DBD Matched Name Lookup Table
                 dbd_dictionary = {
-                    "0107536000231": "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
+                    "0107542000011": "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
                     "0107561000242": "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)",
                     "0105536092641": "บริษัท เอก-ชัย ดีสทริบิวชั่น ซิสเทม จำกัด",
                     "0105539021206": "บริษัท เซ็นทรัล ฟู้ด รีเทล จำกัด",
