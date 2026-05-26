@@ -1,0 +1,47 @@
+{
+  "receipts": [],
+  "transactions": [
+    {
+      "id": "926860b3-f61d-457e-9f66-602f15bce964",
+      "user_id": "551d168e-9cb0-4d01-9044-8b637174cb7c",
+      "date": "2026-05-26",
+      "name": "สลิปโอนเงิน (โอนออก)",
+      "amount": 1335.0,
+      "type": "expense",
+      "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+      "is_tax_deductible": false,
+      "channel": "bank_slip",
+      "note": "สลิปอ้างอิง: MOCK_LINE_0EE2B2061C (กรุงไทย)",
+      "status": "completed",
+      "source": "line_bot",
+      "created_at": "2026-05-26T08:21:53.091792+00:00"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "551d168e-9cb0-4d01-9044-8b637174cb7c",
+      "email": "test248@gmail.com",
+      "full_name": null,
+      "avatar_url": null,
+      "shop_name": null,
+      "shop_channels": [],
+      "seller_type": "individual",
+      "plan": "free",
+      "plan_expires_at": null,
+      "created_at": "2026-05-23T16:43:41.534308+00:00",
+      "updated_at": "2026-05-23T16:43:41.534308+00:00"
+    }
+  ],
+  "line_profiles": [
+    {
+      "id": "1cf1a107-4975-4c76-bb37-0c33564f114e",
+      "user_id": "551d168e-9cb0-4d01-9044-8b637174cb7c",
+      "line_user_id": "Ud28964de1206975067a7489425615a15",
+      "display_name": "Y O U",
+      "picture_url": "https://sprofile.line-scdn.net/0hkmysPC_INEJUCisTKiRKfCRaNyh3e21QcGsvcGFYbydpbScWcGh_JjEKPSY-PHAcKm4oIGZdY3p2PBUUHSgVbT5uH3QfZwdwCiUOfmR8OCEqUwlhHA84ZiNrNXoQfw9mCDcSXx5rDhUCPQdPHA4ZYxdsEycffChyKF1YFFE4WsE7CEMXeWx6JGcPY3Pv",
+      "pairing_code": null,
+      "pairing_expires_at": null,
+      "created_at": "2026-05-23T16:53:08.918+00:00"
+    }
+  ]
+}
