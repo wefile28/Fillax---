@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from app.api.v1.endpoints import line
+from app.api.v1.endpoints import line, ai, tax, receipts, payment
 from app.core.config import settings
 
 app = FastAPI(
@@ -34,8 +33,12 @@ async def secure_headers_middleware(request, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; object-src 'none';"
     return response
 
-# Register LINE Webhook Router under v1
+# Register API Routers under v1
 app.include_router(line.router, prefix="/api/v1/line", tags=["line"])
+app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
+app.include_router(tax.router, prefix="/api/v1/tax", tags=["tax"])
+app.include_router(receipts.router, prefix="/api/v1/receipts", tags=["receipts"])
+app.include_router(payment.router, prefix="/api/v1/payment", tags=["payment"])
 
 @app.get("/health")
 def health_check():
