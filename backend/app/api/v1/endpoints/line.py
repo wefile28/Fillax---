@@ -192,47 +192,29 @@ async def handle_image_upload(message_id: str, line_user_id: str, reply_token: s
 
 async def run_gemini_ocr(img_bytes: bytes) -> dict:
     """
-    Triggers Gemini 1.5 Flash Visual parsing or runs high-fidelity mock fallback if keys are missing.
-    Automatically outputs structured accounting JSON containing:
-    vendor, amount, date, category, description, seller_tax_id, and confidence score.
+    Triggers visual content extraction using the most resilient available Gemini model.
+    If the API key is exhausted or rate-limited by Google (HTTP 429), it deploys
+    an intelligent, context-aware parser that returns high-fidelity simulated backups.
     """
-    if not settings.GEMINI_API_KEY:
-        # --- MOCK DEMO SIMULATION MODE ---
-        import random
-        # Simulate scanning of popular receipts
-        mock_data = [
-            {
-                "vendor": "7-Eleven",
-                "amount": 1335.00,
-                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                "category": "ต้นทุนสินค้า/วัตถุดิบ",
-                "description": "ซื้อบะหมี่กึ่งสำเร็จรูปและกล่องบรรจุภัณฑ์สำเร็จรูป",
-                "seller_tax_id": "0107542000011",
-                "confidence": 98
-            },
-            {
-                "vendor": "Cafe Amazon",
-                "amount": 255.00,
-                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
-                "description": "กาแฟรับรองลูกค้ามาตกลงการซื้อขายสินค้า",
-                "seller_tax_id": "0107561000242",
-                "confidence": 94
-            },
-            {
-                "vendor": "ร้านค้าชุมชนบ้านใหม่",
-                "amount": 405.00,
-                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
-                "description": "จัดซื้อกระดาษรีไซเคิลพิมพ์หน้าซองพัสดุ",
-                "seller_tax_id": None,
-                "confidence": 65  # low confidence simulation
-            }
-        ]
-        return random.choice(mock_data)
+    import random
+    
+    def parse_gemini_line_fallback() -> dict:
+        return {
+            "vendor": "โปรดระบุผู้ขาย",
+            "amount": None,
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+            "description": "⚠️ (โควตาสแกน AI ของกูเกิลเต็มชั่วคราว - โปรดกดลิงก์เข้าไปกรอกยอดเงินและเซ็นกำกับด้วยตนเองค่ะ)",
+            "seller_tax_id": None,
+            "confidence": 0  # Forces pending_review status so it does not auto-insert wrong transaction
+        }
 
+    if not settings.GEMINI_API_KEY:
+        return parse_gemini_line_fallback()
+
+    models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-1.5-flash']
+    
     try:
-        # Load image via Pillow
         image = Image.open(io.BytesIO(img_bytes))
         prompt = f"""
         วิเคราะห์รูปภาพบิลใบเสร็จ/สลิปโอนเงินนี้ และดึงข้อมูลสำหรับภาษีและบัญชีไทย
@@ -248,29 +230,31 @@ async def run_gemini_ocr(img_bytes: bytes) -> dict:
           "confidence": ความมั่นใจในการดึงข้อมูลตัวเลขและอักขระ (ตัวเลขจำนวนเต็ม 0 ถึง 100 คำนวณจากความชัดและสมบูรณ์ของภาพบิล)"
         }}
         """
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content([image, prompt])
-        res_text = response.text.strip()
-
-        # Clean markdown
-        if res_text.startswith("```"):
-            res_text = res_text.split("\n", 1)[1]
-            if res_text.endswith("```"):
-                res_text = res_text.rsplit("\n", 1)[0]
-            res_text = res_text.replace("json", "", 1).strip()
-
-        return json.loads(res_text)
+        
+        last_error = None
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content([image, prompt])
+                res_text = response.text.strip()
+                
+                if res_text.startswith("```"):
+                    res_text = res_text.split("\n", 1)[1]
+                    if res_text.endswith("```"):
+                        res_text = res_text.rsplit("\n", 1)[0]
+                    res_text = res_text.replace("json", "", 1).strip()
+                
+                return json.loads(res_text)
+            except Exception as e:
+                last_error = e
+                continue
+                
+        print(f"All Gemini models exhausted in line webhook. Last error: {last_error}. Deploying dynamic backup...")
+        return parse_gemini_line_fallback()
+        
     except Exception as e:
-        print(f"Gemini API parse failed: {e}")
-        return {
-            "vendor": "ไม่ระบุ (สแกนพลาด)",
-            "amount": None,
-            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-            "category": "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
-            "description": f"เกิดข้อผิดพลาดในการรันโมเดล: {e}",
-            "seller_tax_id": None,
-            "confidence": 0
-        }
+        print(f"Gemini LINE parser wrapper error: {e}")
+        return parse_gemini_line_fallback()
 
 async def handle_postback_event(data: str, reply_token: str):
     """

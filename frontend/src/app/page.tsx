@@ -41,7 +41,10 @@ export default function Dashboard() {
   useEffect(() => {
     const checkAuth = async () => {
       setIsLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      // Fast-resolving Promise.race to prevent Supabase connection hangs
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1200));
+      const { data: { session } } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
       
       if (session) {
         setUser(session.user);
@@ -69,11 +72,14 @@ export default function Dashboard() {
 
   const fetchTransactions = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      // Guard transactions fetch with a 1500ms timeout
+      const queryPromise = supabase
         .from("transactions")
         .select("*")
         .eq("user_id", userId)
         .order("date", { ascending: false });
+      const queryTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+      const { data, error } = (await Promise.race([queryPromise, queryTimeout])) as any;
 
       if (error) throw error;
       setTransactions(data || []);

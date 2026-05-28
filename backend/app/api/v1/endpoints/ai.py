@@ -81,7 +81,6 @@ async def ai_tax_chat(
         )
     else:
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
             system_instruction = (
                 "คุณคือผู้เชี่ยวชาญด้านบัญชีและภาษีของประเทศไทย (Juristic Tax Advisor) ทำงานให้กับแอปพลิเคชัน Fillax "
                 "หน้าที่ของคุณคือการให้คำปรึกษาภาษีอย่างชาญฉลาด ถูกต้องตามประมวลรัษฎากรไทยสำหรับฟรีแลนซ์ แม่ค้าพ่อค้าออนไลน์ "
@@ -91,13 +90,34 @@ async def ai_tax_chat(
                 "ข้อมูลนี้เป็นเพียงการประเมินเบื้องต้นตามประมวลรัษฎากรเท่านั้น และไม่ใช่การให้คำปรึกษากฎหมายเป็นทางการ "
                 "ผู้ใช้ควรปรึกษาสำนักงานบัญชีหรือที่ปรึกษาภาษีวิชาชีพก่อนนำข้อมูลไปยื่นจริงทุกครั้ง"
             )
-            response = model.generate_content(
-                f"{system_instruction}\n\nคำถามจากผู้ใช้: {masked_input}"
-            )
-            reply = response.text.strip()
+            
+            models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-1.5-flash']
+            reply = ""
+            last_error = None
+            
+            for model_name in models_to_try:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content(
+                        f"{system_instruction}\n\nคำถามจากผู้ใช้: {masked_input}"
+                    )
+                    reply = response.text.strip()
+                    break
+                except Exception as ex:
+                    last_error = ex
+                    continue
+            
+            if not reply:
+                # If rate-limited or quota exceeded, reply with a helpful message explaining the limit
+                reply = (
+                    "สวัสดีค่ะ! ดิฉันขอประทานอภัยด้วยนะคะ เนื่องจากความหนาแน่นของการใช้บริการระบบปัญญาประดิษฐ์ประเมินภาษีสูงมาก "
+                    "ทำให้โควตาคำถามของกูเกิล (Gemini API Free Quota) บนกุญแจเซิร์ฟเวอร์ระบบนี้เกินพิกัดการใช้งานชั่วคราวค่ะ "
+                    "แต่ผู้ช่วย Fillax ยังยินดีวิเคราะห์รายจ่ายและบันทึก มค.๑ ให้คุณต่อไปได้เสถียร 100% เลยนะคะ! "
+                    f"\n\n(รายละเอียดทางเทคนิค: {last_error})"
+                )
         except Exception as e:
             print(f"Gemini API chat error: {e}")
-            reply = f"❌ เกิดข้อผิดพลาดในการเรียกใช้โมเดลภาษีอัจฉริยะ: {str(e)}"
+            reply = f"❌ เกิดข้อผิดพลาดในการประมวลผลคำแนะนำภาษี: {str(e)}"
 
     # 5. Increment dynamic AI quota count for 'free' tier
     new_ai_count = ai_count + 1

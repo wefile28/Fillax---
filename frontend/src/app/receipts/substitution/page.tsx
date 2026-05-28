@@ -451,97 +451,155 @@ export default function SubstitutionPage() {
           <div className="glass rounded-3xl p-6 border border-[#B08CFF]/15 bg-white shadow-lg overflow-x-auto">
             
             {/* Printable Container A4 page */}
-            <div className="print-container bg-white text-black font-serif p-6 min-h-[580px] w-full max-w-full text-xs flex flex-col gap-6 select-none leading-relaxed border border-gray-200 rounded-xl">
+            <div className="print-container bg-white text-black font-sans p-8 min-h-[750px] w-full max-w-full text-xs flex flex-col gap-6 select-none leading-relaxed border-2 border-double border-gray-400 rounded-xl relative shadow-md">
               
               {/* Document title */}
-              <div className="text-center space-y-1.5 border-b border-black pb-4">
-                <h2 className="text-sm font-bold tracking-wide">ใบแทนใบเสร็จรับเงิน</h2>
-                <h3 className="text-xs font-bold">(มค.๑)</h3>
-                <p className="text-[10px] text-right font-semibold">
-                  ส่วนราชการ / ร้านค้าต้นสังกัด: <span className="font-bold underline px-1.5">{buyerName || "................................................"}</span>
-                </p>
+              <div className="text-center space-y-1.5 pb-4 border-b-2 border-black">
+                <h2 className="text-base md:text-lg font-black tracking-wide text-black uppercase">ใบรับรองแทนใบเสร็จรับเงิน</h2>
+                <h3 className="text-xs md:text-sm font-bold tracking-widest text-black">ตามประมวลรัษฎากร (มค.๑)</h3>
+                
+                <div className="flex justify-between items-end text-[10px] mt-4 font-semibold">
+                  <div className="flex items-end gap-1">
+                    <span>วันที่เขียนใบแทน:</span>
+                    <span className="border-b border-dotted border-gray-600 font-bold px-2 min-w-[100px] text-center text-black">
+                      {date ? new Date(date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }) : "\u00a0"}
+                    </span>
+                  </div>
+                  <div className="flex items-end gap-1.5">
+                    <span>ส่วนราชการ / สถานประกอบการ:</span>
+                    <span className="border-b border-dotted border-gray-600 font-black px-2 min-w-[180px] text-center text-black">
+                      {buyerName || "\u00a0"}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {/* Date & Context details */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex justify-between">
-                  <p>ข้าพเจ้า <span className="font-bold underline px-2">{sellerName || "............................................................"}</span></p>
-                  <p>เลขประจำตัวประชาชน <span className="font-mono font-bold underline px-2">{sellerId || "........................................."}</span></p>
+              <div className="flex flex-col gap-4 pt-2">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex items-end gap-1.5 flex-1 min-w-0">
+                    <span className="shrink-0 text-black">ข้าพเจ้า</span>
+                    <span className="flex-1 border-b border-dotted border-gray-600 text-center font-bold px-2 truncate min-h-[1.5rem] text-black">
+                      {sellerName || "\u00a0"}
+                    </span>
+                  </div>
+                  <div className="flex items-end gap-1.5 flex-1 min-w-0">
+                    <span className="shrink-0 text-black">เลขประจำตัวประชาชน</span>
+                    <span className="flex-1 border-b border-dotted border-gray-600 text-center font-mono font-bold px-2 truncate min-h-[1.5rem] tracking-wider text-black">
+                      {sellerId ? sellerId.replace(/(\d{1})(\d{4})(\d{5})(\d{2})(\d{1})/, "$1-$2-$3-$4-$5") : "\u00a0"}
+                    </span>
+                  </div>
                 </div>
-                <p>อยู่บ้านเลขที่ <span className="font-bold underline px-2">{sellerAddress || "..........................................................................................................................................................................."}</span></p>
-                <p>ได้รับเงินจาก <span className="font-bold underline px-2">{buyerName || "..................................................................................................."}</span> ในวันทำเอกสารดังนี้:</p>
+
+                <div className="flex items-end gap-1.5 w-full min-w-0">
+                  <span className="shrink-0 text-black">อยู่บ้านเลขที่</span>
+                  <span className="flex-1 border-b border-dotted border-gray-600 text-left font-bold px-2 truncate min-h-[1.5rem] text-black">
+                    {sellerAddress || "\u00a0"}
+                  </span>
+                </div>
+
+                <div className="flex items-end gap-1.5 w-full min-w-0">
+                  <span className="shrink-0 text-black">ได้รับเงินจาก</span>
+                  <span className="flex-1 border-b border-dotted border-gray-600 text-center font-bold px-2 truncate min-h-[1.5rem] text-black">
+                    {buyerName || "\u00a0"}
+                  </span>
+                  <span className="shrink-0 text-black">ดังรายการต่อไปนี้:</span>
+                </div>
               </div>
 
               {/* Dynamic Items Table */}
-              <table className="w-full border-collapse border border-black text-center text-[10px]">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="border border-black p-2 w-12 font-bold">ลำดับที่</th>
-                    <th className="border border-black p-2 font-bold text-left">รายการจ่าย</th>
-                    <th className="border border-black p-2 w-28 font-bold">จำนวนเงิน (บาท)</th>
-                    <th className="border border-black p-2 w-16 font-bold">สตางค์</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.length === 0 ? (
-                    <tr>
-                      <td className="border border-black p-3 text-center" colSpan={4}>ยังไม่มีรายการสินค้า</td>
+              <div className="border border-black rounded-lg overflow-hidden mt-2">
+                <table className="w-full border-collapse text-center text-[10px] leading-relaxed">
+                  <thead>
+                    <tr className="bg-gray-100 border-b border-black font-bold text-black">
+                      <th className="border-r border-black p-2.5 w-12 font-bold">ลำดับที่</th>
+                      <th className="border-r border-black p-2.5 font-bold text-left">รายการจ่าย</th>
+                      <th className="border-r border-black p-2.5 w-32 font-bold">จำนวนเงิน (บาท)</th>
+                      <th className="p-2.5 w-20 font-bold">สตางค์</th>
                     </tr>
-                  ) : (
-                    items.map((item, idx) => {
-                      const split = item.amount.toFixed(2).split(".");
-                      return (
-                        <tr key={idx}>
-                          <td className="border border-black p-2 font-semibold">{idx + 1}</td>
-                          <td className="border border-black p-2 text-left font-semibold">{item.description}</td>
-                          <td className="border border-black p-2 text-right font-mono font-semibold">{parseInt(split[0]).toLocaleString()}</td>
-                          <td className="border border-black p-2 font-mono font-semibold">{split[1]}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                  {/* Totals row */}
-                  <tr className="bg-gray-50 font-bold">
-                    <td className="border border-black p-2 font-bold" colSpan={2}>
-                      รวมทั้งสิ้น ({formatBahtText(totalAmount)})
-                    </td>
-                    <td className="border border-black p-2 text-right font-mono font-bold">
-                      {parseInt(totalAmount.toFixed(2).split(".")[0]).toLocaleString()}
-                    </td>
-                    <td className="border border-black p-2 font-mono font-bold">
-                      {totalAmount.toFixed(2).split(".")[1]}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {items.length === 0 ? (
+                      <tr className="border-b border-black">
+                        <td className="p-4 text-center text-gray-400 font-bold" colSpan={4}>ยังไม่มีรายการสินค้าพึงบันทึก</td>
+                      </tr>
+                    ) : (
+                      items.map((item, idx) => {
+                        const split = item.amount.toFixed(2).split(".");
+                        return (
+                          <tr key={idx} className="border-b border-black font-medium text-black">
+                            <td className="border-r border-black p-2.5 font-semibold">{idx + 1}</td>
+                            <td className="border-r border-black p-2.5 text-left font-semibold">{item.description}</td>
+                            <td className="border-r border-black p-2.5 text-right font-mono font-bold">{parseInt(split[0]).toLocaleString()}</td>
+                            <td className="p-2.5 font-mono font-bold">{split[1]}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                    {/* Totals row */}
+                    <tr className="bg-gray-50 font-bold text-black">
+                      <td className="border-r border-black p-2.5 font-bold text-left" colSpan={2}>
+                        รวมทั้งสิ้น ({formatBahtText(totalAmount)})
+                      </td>
+                      <td className="border-r border-black p-2.5 text-right font-mono font-bold">
+                        {parseInt(totalAmount.toFixed(2).split(".")[0]).toLocaleString()}
+                      </td>
+                      <td className="p-2.5 font-mono font-bold">
+                        {totalAmount.toFixed(2).split(".")[1]}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
 
               {/* Declarations and signature section */}
-              <div className="flex flex-col gap-6 mt-4">
-                <p className="leading-relaxed">
-                  ข้าพเจ้าขอรับรองว่ารายจ่ายข้างต้นนี้ เป็นการจ่ายจริงเพื่อวัตถุประสงค์ในการดำเนินกิจการค้าของ {buyerName || "..........................................................."} โดยตรง และข้าพเจ้าไม่สามารถเรียกเอาใบเสร็จรับเงินอย่างเป็นทางการตามข้อกำหนดกฎหมายจากผู้รับเงินได้
+              <div className="flex flex-col gap-5 mt-4 pt-2">
+                <div className="flex items-end gap-1.5 w-full min-w-0">
+                  <span className="shrink-0 leading-relaxed text-black">ข้าพเจ้าขอรับรองว่ารายจ่ายข้างต้นนี้ เป็นการจ่ายจริงเพื่อวัตถุประสงค์ในการดำเนินกิจการค้าของ</span>
+                  <span className="flex-1 border-b border-dotted border-gray-600 text-center font-bold px-2 truncate min-h-[1.5rem] text-black">
+                    {buyerName || "\u00a0"}
+                  </span>
+                </div>
+                <p className="leading-relaxed text-black">
+                  โดยตรง และข้าพเจ้าไม่สามารถเรียกเอาใบเสร็จรับเงินอย่างเป็นทางการตามข้อกำหนดกฎหมายของประมวลรัษฎากรจากผู้รับเงินได้จริง
                 </p>
 
-                <div className="grid grid-cols-2 gap-4 mt-6 text-center">
-                  {/* Left Signature Column */}
-                  <div className="flex flex-col items-center gap-2">
-                    <p className="font-semibold">ลงชื่อ ................................................................ ผู้จ่ายเงิน</p>
-                    <p className="text-[10px] text-gray-500">( {buyerName || "................................................"} )</p>
+                {/* Signature Panel */}
+                <div className="grid grid-cols-2 gap-12 mt-8 text-center text-xs text-black">
+                  {/* Left Signature Column (Payer) */}
+                  <div className="flex flex-col items-center justify-end gap-2">
+                    <div className="w-48 h-10 border-b border-solid border-gray-400 flex items-center justify-center relative">
+                      <span className="text-[9px] bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded font-black tracking-wider shadow-sm uppercase animate-pulse">
+                        อนุมัติดิจิทัลเรียบร้อย
+                      </span>
+                    </div>
+                    <div className="text-[10px] font-bold mt-1">
+                      ลงชื่อ ................................................................ ผู้จ่ายเงิน
+                    </div>
+                    <div className="text-[9.5px] text-gray-500 font-semibold">
+                      ( {buyerName || "\u00a0"} )
+                    </div>
                   </div>
                   
-                  {/* Right Signature Column with Canvas signature image embedding */}
-                  <div className="flex flex-col items-center gap-2">
-                    {signatureData ? (
-                      <div className="relative w-36 h-12 border-b border-black flex items-center justify-center">
+                  {/* Right Signature Column (Payee) */}
+                  <div className="flex flex-col items-center justify-end gap-2">
+                    <div className="w-48 h-10 border-b border-solid border-gray-400 flex items-center justify-center relative">
+                      {signatureData ? (
                         <img 
                           src={signatureData} 
                           alt="Signature Preview" 
-                          className="w-full h-full object-contain max-h-10"
+                          className="max-h-8 object-contain"
                         />
-                      </div>
-                    ) : (
-                      <p className="font-semibold">ลงชื่อ ................................................................ ผู้รับเงิน</p>
-                    )}
-                    <p className="text-[10px] text-gray-500">( {sellerName || "................................................"} )</p>
+                      ) : (
+                        <span className="text-[10px] text-gray-300 italic font-normal">รอลายมือชื่อคู่ค้า</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] font-bold mt-1">
+                      ลงชื่อ ................................................................ ผู้รับเงิน
+                    </div>
+                    <div className="text-[9.5px] text-gray-500 font-semibold">
+                      ( {sellerName || "\u00a0"} )
+                    </div>
                   </div>
                 </div>
               </div>

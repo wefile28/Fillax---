@@ -88,7 +88,10 @@ function LiffReviewContent() {
   useEffect(() => {
     const initData = async () => {
       setIsLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      // Fast-resolving Promise.race to prevent Supabase connection hangs
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1200));
+      const { data: { session } } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
       
       let currentUserId = "guest";
       if (session) {
@@ -98,11 +101,14 @@ function LiffReviewContent() {
 
       if (receiptId && receiptId !== "mock-amazon" && receiptId !== "mock-seven") {
         try {
-          const { data, error } = await supabase
+          // Guard receipts single fetch with a 1500ms timeout
+          const queryPromise = supabase
             .from("receipts")
             .select("*")
             .eq("id", receiptId)
             .single();
+          const queryTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+          const { data, error } = (await Promise.race([queryPromise, queryTimeout])) as any;
 
           if (error) throw error;
 

@@ -71,71 +71,89 @@ export default function ReceiptsPage() {
 
   const fetchReceipts = async () => {
     setIsLoading(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (session) {
-      // Sync plan quotas first
-      const { data: prof } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-      if (prof) {
-        setPlan(prof.plan || "free");
-        setOcrCount(prof.ocr_count || 0);
-      }
+    try {
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1200));
+      const { data: { session } } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
+      
+      if (session) {
+        // Sync plan quotas first with 1200ms timeout
+        const profilePromise = supabase.from("profiles").select("*").eq("id", session.user.id).single();
+        const profileTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1200));
+        const { data: prof } = (await Promise.race([profilePromise, profileTimeout])) as any;
+        
+        if (prof) {
+          setPlan(prof.plan || "free");
+          setOcrCount(prof.ocr_count || 0);
+        }
 
-      // Fetch receipts from DB
-      const { data, error } = await supabase
-        .from("receipts")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("date", { ascending: false });
+        // Fetch receipts from DB with 1500ms timeout
+        const queryPromise = supabase
+          .from("receipts")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("date", { ascending: false });
+        const queryTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500));
+        const { data } = (await Promise.race([queryPromise, queryTimeout])) as any;
 
-      if (data) {
-        setReceipts(data);
+        if (data) {
+          setReceipts(data);
+        }
+      } else {
+        // Local storage fallback for guest mode simulation
+        const localPlan = localStorage.getItem("fillax_plan") || "free";
+        const localOcr = localStorage.getItem("fillax_ocr_count");
+        setPlan(localPlan);
+        setOcrCount(localOcr ? parseInt(localOcr) : 0);
+        
+        const localReceipts = localStorage.getItem("fillax_mock_receipts");
+        if (localReceipts) {
+          setReceipts(JSON.parse(localReceipts));
+        } else {
+          // Initial clean template records
+          const initial = [
+            {
+              id: "rec-amazon",
+              vendor: "Cafe Amazon",
+              amount: 255.00,
+              date: new Date().toISOString().split("T")[0],
+              category: "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+              description: "กาแฟรับรองลูกค้ามาเซ็นสัญญาธุรกิจ",
+              seller_tax_id: "0107561000242",
+              is_dbd_verified: true,
+              dbd_company_name: "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)",
+              file_url: "/fillax-mascot-v4.png",
+              status: "completed",
+              source: "line_bot"
+            },
+            {
+              id: "rec-seven",
+              vendor: "7-Eleven",
+              amount: 1335.00,
+              date: new Date().toISOString().split("T")[0],
+              category: "ต้นทุนสินค้า/วัตถุดิบ",
+              description: "จัดซื้อบะหมี่และกระดาษห่อสินค้า",
+              seller_tax_id: "0107542000011",
+              is_dbd_verified: true,
+              dbd_company_name: "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
+              file_url: "/fillax-mascot-v4.png",
+              status: "completed",
+              source: "web_client"
+            }
+          ];
+          localStorage.setItem("fillax_mock_receipts", JSON.stringify(initial));
+          setReceipts(initial);
+        }
       }
-    } else {
-      // Local storage fallback for guest mode simulation
+    } catch (e) {
+      console.error("Receipts sync fallback:", e);
+      // Fallback
       const localPlan = localStorage.getItem("fillax_plan") || "free";
       const localOcr = localStorage.getItem("fillax_ocr_count");
       setPlan(localPlan);
       setOcrCount(localOcr ? parseInt(localOcr) : 0);
-      
       const localReceipts = localStorage.getItem("fillax_mock_receipts");
-      if (localReceipts) {
-        setReceipts(JSON.parse(localReceipts));
-      } else {
-        // Initial clean template records
-        const initial = [
-          {
-            id: "rec-amazon",
-            vendor: "Cafe Amazon",
-            amount: 255.00,
-            date: new Date().toISOString().split("T")[0],
-            category: "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
-            description: "กาแฟรับรองลูกค้ามาเซ็นสัญญาธุรกิจ",
-            seller_tax_id: "0107561000242",
-            is_dbd_verified: true,
-            dbd_company_name: "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)",
-            file_url: "/fillax-mascot-v4.png",
-            status: "completed",
-            source: "line_bot"
-          },
-          {
-            id: "rec-seven",
-            vendor: "7-Eleven",
-            amount: 1335.00,
-            date: new Date().toISOString().split("T")[0],
-            category: "ต้นทุนสินค้า/วัตถุดิบ",
-            description: "จัดซื้อบะหมี่และกระดาษห่อสินค้า",
-            seller_tax_id: "0107542000011",
-            is_dbd_verified: true,
-            dbd_company_name: "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
-            file_url: "/fillax-mascot-v4.png",
-            status: "completed",
-            source: "web_client"
-          }
-        ];
-        localStorage.setItem("fillax_mock_receipts", JSON.stringify(initial));
-        setReceipts(initial);
-      }
+      if (localReceipts) setReceipts(JSON.parse(localReceipts));
     }
     setIsLoading(false);
   };

@@ -47,31 +47,46 @@ export default function DashboardShell({ children }: DashboardShellProps) {
     { name: "ตั้งค่าระบบ", path: "/settings", icon: Settings },
   ];
 
-  // Fetch real Supabase profile data on mount & update listener
+  // Fetch real Supabase profile data on mount
   useEffect(() => {
     const fetchProfile = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setUser(session.user);
-        
-        // Sync real profile data
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
+      try {
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1200));
+        const { data: { session } } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
+
+        if (session) {
+          setUser(session.user);
           
-        if (data) {
-          setPlan(data.plan || "free");
-          setOcrCount(data.ocr_count || 0);
-          setAiCount(data.ai_count || 0);
+          // Sync real profile data with fast-resolving timeout
+          const profilePromise = supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .single();
+          const profileTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1200));
+          const { data, error } = (await Promise.race([profilePromise, profileTimeout])) as any;
+            
+          if (data) {
+            setPlan(data.plan || "free");
+            setOcrCount(data.ocr_count || 0);
+            setAiCount(data.ai_count || 0);
+          }
+        } else {
+          // Guest mode fallback metrics
+          setUser(null);
+          setPlan("free");
+          
+          // Load counts from local storage if available
+          const localOcr = localStorage.getItem("fillax_ocr_count");
+          const localAi = localStorage.getItem("fillax_ai_count");
+          setOcrCount(localOcr ? parseInt(localOcr) : 0);
+          setAiCount(localAi ? parseInt(localAi) : 0);
         }
-      } else {
-        // Guest mode fallback metrics
+      } catch (err) {
+        console.error("DashboardShell profile sync fallback:", err);
         setUser(null);
         setPlan("free");
-        
-        // Load counts from local storage if available
         const localOcr = localStorage.getItem("fillax_ocr_count");
         const localAi = localStorage.getItem("fillax_ai_count");
         setOcrCount(localOcr ? parseInt(localOcr) : 0);
@@ -80,10 +95,6 @@ export default function DashboardShell({ children }: DashboardShellProps) {
     };
 
     fetchProfile();
-
-    // Listen to local changes (e.g. after scanner/chat executes)
-    const interval = setInterval(fetchProfile, 3000);
-    return () => clearInterval(interval);
   }, [pathname]);
 
   const handleLogout = async () => {
