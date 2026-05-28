@@ -156,12 +156,6 @@
 - [x] Refactor hardcoded production URLs in LINE Flex Message buttons to dynamically leverage `settings.FRONTEND_URL`, enabling seamless local webview edit overlays.
 - [x] Integrate real Supabase Storage image uploads inside the LINE Bot webhook, resolving broken receipt images.
 - [x] Implement automatic transaction logging upon LINE receipt confirmations, instantly reflecting figures in Dashboard.
-
-
-
-
-
-
-
-
-
+- [x] Develop and launch the brand-new interactive double-pane mobile LIFF receipt review page at `/liff` featuring responsive original receipt image frames, real-time editable form inputs, client-side/server-side Modulo-11 juristic DBD validations, and a touch-responsive HTML5 signature canvas for electronical signing.
+- [x] Implement professional, ThaiLawyers/Lawlogy-compliant Terms of Service (TOS) and PDPA privacy policies at `/tos` to eliminate tax claim liabilities and secure solo developers from legal exposure.
+- [x] Deployed Next.js Suspense boundary wrappers around search parameters CSR bails, enabling 100% clean Turbopack production compilation.

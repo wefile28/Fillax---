@@ -1,37 +1,9 @@
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
-python-dotenv>=1.0.1
-pydantic>=2.7.0
-pydantic-settings>=2.2.1
-python-multipart>=0.0.9
-
-# Database
-supabase>=2.4.2
-
-# PDF & OCR
-pdfplumber>=0.11.0
-pymupdf>=1.24.2          # fitz — อ่าน PDF คุณภาพสูง (หลีกเลี่ยงการ Build จาก Source บน Python 3.14+)
-
-# AI
-anthropic>=0.28.0
-
-# HTTP client
-httpx>=0.27.0
-
-# PDF generation (Export รายงาน)
-reportlab>=4.2.0
-
-# Testing
-pytest>=8.2.0
-pytest-asyncio>=0.23.0
-httpx>=0.27.0            # test client
-
-# Payment Gateway
-omise>=0.1.1
-
-# Email validation (Pydantic EmailStr validation)
-email-validator>=2.0.0
-
-# Redis Cache Integration
-redis>=5.0.0
-
+fastapi
+uvicorn[standard]
+supabase
+pydantic-settings
+line-bot-sdk
+google-generativeai
+python-multipart
+python-dotenv
+Pillow

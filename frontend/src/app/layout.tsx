@@ -1,16 +1,14 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import CookieConsent from "@/components/cookie-consent";
 
 export const metadata: Metadata = {
-  title: "Fillax - Tax & Accounting Assistant",
-  description:
-    "ระบบผู้ช่วยด้านภาษีและการบัญชี จัดการรายรับรายจ่าย ใบเสร็จ และประเมินความเสี่ยงภาษี",
+  title: "Fillax — ระบบวิเคราะห์รายจ่ายและภาษีแม่ค้าออนไลน์อัจฉริยะ",
+  description: "ที่ปรึกษาภาษีส่วนตัวอัจฉริยะแม่ค้าออนไลน์ไทย สแกนสลิปรายจ่ายผ่านไลน์ อุ่นใจสรรพากรไม่เรียกเก็บย้อนหลัง",
   icons: {
-    icon: "/favicon.ico",
-    shortcut: "/favicon.ico",
-    apple: "/fillax-mascot.png",
-  },
+    icon: "/fillax-mascot-v4.png",
+    shortcut: "/fillax-mascot-v4.png",
+    apple: "/fillax-mascot-v4.png"
+  }
 };
 
 export default function RootLayout({
@@ -19,10 +17,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="th" suppressHydrationWarning>
-      <body className="font-sans antialiased" suppressHydrationWarning>
+    <html lang="th">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=Sarabun:wght@300;400;500;700&display=swap" rel="stylesheet" />
+      </head>
+      <body className="antialiased">
         {children}
-        <CookieConsent />
       </body>
     </html>
   );
