@@ -73,9 +73,15 @@ export default function TaxRiskAssessmentPage() {
     setIsCalculating(true);
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const { data: { session } } = await supabase.auth.getSession();
+    
+    let fetchSuccess = false;
+    let resData: any = null;
 
     try {
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1200));
+      const { data: { session } } = (await Promise.race([sessionPromise, timeoutPromise])) as any;
+
       const headers: Record<string, string> = {
         "Content-Type": "application/json"
       };
@@ -100,44 +106,160 @@ export default function TaxRiskAssessmentPage() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Tax calculation failed");
+      if (response.ok) {
+        resData = await response.json();
+        fetchSuccess = true;
+      }
+    } catch (err) {
+      console.warn("Backend tax API call failed or timed out, executing high-fidelity client-side calculations:", err);
+    }
+
+    if (fetchSuccess && resData) {
+      setCalcResults(resData);
+      setIsCalculating(false);
+      return;
+    }
+
+    // High-Fidelity client-side offline progressive calculator
+    const grossIncome = parseFloat(income) || 0;
+    const totalExpenses = parseFloat(expenses) || 0;
+    const isVatRisk = grossIncome >= 1800000.0;
+    
+    let totalAllowances = 0;
+    let taxableIncome = 0;
+    let taxLiability = 0;
+    let steps: ProgressiveStep[] = [];
+    let riskLevel = "low";
+    let riskAdvice = "";
+
+    if (sellerType === "juristic") {
+      totalAllowances = 0;
+      taxableIncome = Math.max(grossIncome - totalExpenses, 0);
+      
+      // Juristic Brackets CIT
+      // 0 - 300,000 (0%)
+      const bracket1 = Math.min(taxableIncome, 300000);
+      steps.push({
+        bracket_range: "0 - 300,000 (ยกเว้น)",
+        rate: 0,
+        taxable_amount: bracket1,
+        tax_amount: 0
+      });
+
+      // 300,001 - 3,000,000 (15%)
+      let remaining = taxableIncome - bracket1;
+      if (remaining > 0) {
+        const bracket2 = Math.min(remaining, 2700000);
+        const tax2 = bracket2 * 0.15;
+        taxLiability += tax2;
+        steps.push({
+          bracket_range: "300,001 - 3,000,000",
+          rate: 15,
+          taxable_amount: bracket2,
+          tax_amount: tax2
+        });
+        remaining -= bracket2;
       }
 
-      const resData = await response.json();
-      setCalcResults(resData);
-    } catch (err) {
-      console.error(err);
-      
-      // Standalone simulation fallback if API isn't loaded cleanly
-      setTimeout(() => {
-        const incVal = parseFloat(income) || 0;
-        const expVal = parseFloat(expenses) || 0;
-        const allVal = sellerType === "juristic" ? 0 : 69000;
-        const taxable = Math.max(incVal - expVal - allVal, 0);
-        
-        const dummySteps: ProgressiveStep[] = [
-          { bracket_range: "0 - 150,000 (ยกเว้น)", rate: 0, taxable_amount: Math.min(taxable, 150000), tax_amount: 0 },
-          { bracket_range: "150,001 - 300,000", rate: 5, taxable_amount: Math.max(0, Math.min(taxable - 150000, 150000)), tax_amount: Math.max(0, Math.min(taxable - 150000, 150000)) * 0.05 }
-        ];
-        
-        setCalcResults({
-          gross_income: incVal,
-          total_expenses: expVal,
-          total_allowances: allVal,
-          taxable_income: taxable,
-          tax_liability: dummySteps.reduce((sum, s) => sum + s.tax_amount, 0),
-          seller_type: sellerType,
-          steps: dummySteps,
-          risk_level: incVal >= 1800000 ? "high" : "low",
-          risk_advice: incVal >= 1800000 
-            ? "⚠️ ยอดรายรับต่อปีของคุณเกิน 1.8 ล้านบาทแล้ว! มีหน้าที่ประเมินจดทะเบียนภาษีมูลค่าเพิ่ม (VAT 7%) ในนามบุคคลธรรมดา และควรวางแผนจดทะเบียนบริษัท"
-            : "🟢 ยอดขายยังไม่ถึงเกณฑ์บังคับจด VAT แต่อย่าลืมจัดระเบียบเอกสารตามจริงเพื่อความเสถียรสูงสุดค่ะ"
+      // Over 3,000,000 (20%)
+      if (remaining > 0) {
+        const tax3 = remaining * 0.20;
+        taxLiability += tax3;
+        steps.push({
+          bracket_range: "มากกว่า 3,000,000",
+          rate: 20,
+          taxable_amount: remaining,
+          tax_amount: tax3
         });
-      }, 500);
-    } finally {
-      setIsCalculating(false);
+      }
+
+      // CIT Advice
+      if (isVatRisk) {
+        riskLevel = "high";
+        riskAdvice = "⚠️ ยอดขายสะสมต่อปีเกิน 1.8 ล้านบาทแล้ว! ท่านมีหน้าที่ต้องจดทะเบียนภาษีมูลค่าเพิ่ม (VAT 7%) ภายใน 30 วันนับแต่วันที่ยอดขายเกินเกณฑ์ และยื่นแบบ ภ.พ.30 ทุกเดือนเพื่อป้องกันเบี้ยปรับย้อนหลังสูงสุด 2 เท่าค่ะ";
+      } else {
+        riskLevel = "low";
+        riskAdvice = "🟢 ยอดรายรับอยู่ในเกณฑ์ปลอดภัยจากข้อผูกมัด VAT แต่อย่าลืมบันทึกทำบัญชีและยื่นงบการเงินและ ภ.พ.ด.50/51 ประจำปีนะคะ";
+      }
+    } else {
+      // PIT Allowance summation
+      totalAllowances = (
+        (parseFloat(personalAllowance) || 0) +
+        (parseFloat(socialSecurity) || 0) +
+        (parseFloat(lifeInsurance) || 0) +
+        (parseFloat(ssfRmf) || 0) +
+        (parseFloat(homeInterest) || 0) +
+        (parseFloat(easyEreceipt) || 0) +
+        (parseFloat(otherAllowances) || 0)
+      );
+
+      taxableIncome = Math.max(grossIncome - totalExpenses - totalAllowances, 0);
+
+      // PIT Progressive brackets
+      const pitBrackets = [
+        { limit: 150000, rate: 0.0, label: "0 - 150,000 (ยกเว้น)" },
+        { limit: 150000, rate: 0.05, label: "150,001 - 300,000" },
+        { limit: 200000, rate: 0.10, label: "300,001 - 500,000" },
+        { limit: 250000, rate: 0.15, label: "500,001 - 750,000" },
+        { limit: 250000, rate: 0.20, label: "750,001 - 1,000,000" },
+        { limit: 1000000, rate: 0.25, label: "1,000,001 - 2,000,000" },
+        { limit: 3000000, rate: 0.30, label: "2,000,001 - 5,000,000" },
+        { limit: Infinity, rate: 0.35, label: "มากกว่า 5,000,000" }
+      ];
+
+      let remaining = taxableIncome;
+      
+      // Step 1 (0% rate)
+      const firstBracket = Math.min(remaining, 150000);
+      steps.push({
+        bracket_range: pitBrackets[0].label,
+        rate: 0,
+        taxable_amount: firstBracket,
+        tax_amount: 0
+      });
+      remaining -= firstBracket;
+
+      for (let i = 1; i < pitBrackets.length; i++) {
+        if (remaining <= 0) break;
+        const b = pitBrackets[i];
+        const taxableInBracket = b.limit === Infinity ? remaining : Math.min(remaining, b.limit);
+        const taxInBracket = taxableInBracket * b.rate;
+        taxLiability += taxInBracket;
+        steps.push({
+          bracket_range: b.label,
+          rate: b.rate * 100,
+          taxable_amount: taxableInBracket,
+          tax_amount: taxInBracket
+        });
+        remaining -= taxableInBracket;
+      }
+
+      // PIT Advice
+      if (isVatRisk) {
+        riskLevel = "high";
+        riskAdvice = "⚠️ ยอดขายบุคคลธรรมดาเกิน 1.8 ล้านบาทต่อปี! สรรพากรบังคับจดทะเบียนภาษีมูลค่าเพิ่ม (VAT 7%) ทันที และหากท่านมีกำไรสุทธิทางภาษีค่อนข้างสูง แนะนำให้วางแผนจดทะเบียนจัดตั้งบริษัท/ห้างหุ้นส่วนจำกัด เพื่อลดอัตราภาษีจากขั้นบันไดบุคคลธรรมดา (สูงสุด 35%) มาใช้อัตราภาษีนิติบุคคล SME (สูงสุดเพียง 20%) ค่ะ";
+      } else if (taxableIncome > 1000000) {
+        riskLevel = "medium";
+        riskAdvice = "💡 เงินได้สุทธิหลังหักรายจ่ายของท่านเข้าเกณฑ์เสียภาษีอัตราก้าวหน้าสูง (25% ขึ้นไป) แนะนำให้จดทะเบียนเป็นนิติบุคคลและจัดระเบียบบันทึกบิลค่าใช้จ่ายธุรกิจแบบตามจริง เพื่อเสียภาษีในเรท SME 15% จะประหยัดกว่าค่ะ";
+      } else {
+        riskLevel = "low";
+        riskAdvice = "🟢 อัตราภาษีอยู่ในเกณฑ์ที่บริหารจัดการได้ดี แนะนำให้ใช้สิทธิ์ลดหย่อนช้อปดีมีคืน ประกันสังคม และกองทุนสะสมต่างๆ ให้เต็มโควตาค่ะ";
+      }
     }
+
+    setCalcResults({
+      gross_income: grossIncome,
+      total_expenses: totalExpenses,
+      total_allowances: totalAllowances,
+      taxable_income: taxableIncome,
+      tax_liability: taxLiability,
+      seller_type: sellerType,
+      steps: steps,
+      risk_level: riskLevel,
+      risk_advice: riskAdvice
+    });
+
+    setIsCalculating(false);
   };
 
   return (

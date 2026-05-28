@@ -208,22 +208,72 @@ export default function ReceiptsPage() {
       // Force reload page to fetch fresh transaction records synced in main.py
       fetchReceipts();
     } catch (err: any) {
-      console.error(err);
+      console.error("Backend OCR failed, deploying high-fidelity client-side offline helper:", err);
       
-      // Mock simulation fallback if API environment isn't live
+      // Parse uploaded filename locally to allow seamless visual mock testing
+      const cleanedFn = uploadedFile.name.toLowerCase();
+      let vendor = "";
+      let amount: number | null = null;
+      let category = "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ";
+      let description = "⚠️ สแกนออฟไลน์ (โหมดผู้ประกอบการทั่วไป - โปรดระบุชื่อผู้ขายและยอดเงิน)";
+      let sellerTaxId = "";
+      let isDbdVerified = false;
+      let dbdCompanyName = "";
+      let status = "pending_review";
+
+      const vendorsMap: Record<string, [string, string, string, string]> = {
+        "7-eleven": ["7-Eleven", "ต้นทุนสินค้า/วัตถุดิบ", "0107542000011", "ซื้อบรรจุภัณฑ์และของใช้ดำเนินงาน"],
+        "cpall": ["7-Eleven", "ต้นทุนสินค้า/วัตถุดิบ", "0107542000011", "ซื้อบรรจุภัณฑ์และของใช้ดำเนินงาน"],
+        "amazon": ["Cafe Amazon", "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ", "0107561000242", "กาแฟรับรองลูกค้าตกลงธุรกิจ"],
+        "lotus": ["Lotus's", "ต้นทุนสินค้า/วัตถุดิบ", "0105536092641", "กระดาษแพ็คกล่องพัสดุและกล่องกระดาษ"],
+        "shopee": ["Shopee Thailand", "ค่าธรรมเนียมธนาคาร/แพลตฟอร์ม", "0105558021111", "ค่าธรรมเนียมคำสั่งซื้อออนไลน์"],
+        "lazada": ["Lazada Thailand", "ค่าธรรมเนียมธนาคาร/แพลตฟอร์ม", "0105555025555", "ค่าโฆษณาสินค้าและโปรโมชั่น"]
+      };
+
+      for (const key in vendorsMap) {
+        if (cleanedFn.includes(key)) {
+          const [v, c, t, d] = vendorsMap[key];
+          vendor = v;
+          category = c;
+          sellerTaxId = t;
+          description = `${d} (โหมดดึงข้อมูลจำลองจากชื่อไฟล์)`;
+          isDbdVerified = true;
+          dbdCompanyName = key === "amazon" ? "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)" : "บริษัท ซีพี ออลล์ จำกัด (มหาชน)";
+          status = "completed";
+          break;
+        }
+      }
+
+      // Parse Amount from filename if test keyword matches
+      if (vendor) {
+        const nums = cleanedFn.match(/\d+(?:\.\d+)?/g);
+        if (nums) {
+          for (const num of nums) {
+            const val = parseFloat(num);
+            if (val < 50000 && num.length < 6) {
+              amount = val;
+              break;
+            }
+          }
+        }
+        if (amount === null) amount = 250.00;
+      }
+
+      const localFileUrl = URL.createObjectURL(uploadedFile);
+
       setTimeout(() => {
         const dummyRecord: ReceiptRecord = {
           id: `sim-${Date.now()}`,
-          vendor: "ร้านเครื่องเขียนพรีเมียม",
-          amount: 450.00,
+          vendor: vendor,
+          amount: amount,
           date: new Date().toISOString().split("T")[0],
-          category: "วัสดุสิ้นเปลือง/เครื่องเขียน",
-          description: "ซื้อปากกาเน้นข้อความและกระดาษพิมพ์เอกสาร",
-          seller_tax_id: "0105536092641",
-          is_dbd_verified: true,
-          dbd_company_name: "บริษัท เอก-ชัย ดีสทริบิวชั่น ซิสเทม จำกัด",
-          file_url: "/fillax-mascot-v4.png",
-          status: "completed",
+          category: category,
+          description: description,
+          seller_tax_id: sellerTaxId || null,
+          is_dbd_verified: isDbdVerified,
+          dbd_company_name: dbdCompanyName || null,
+          file_url: localFileUrl,
+          status: status,
           source: "web_client"
         };
         
@@ -231,27 +281,29 @@ export default function ReceiptsPage() {
         setReceipts(updatedList);
         localStorage.setItem("fillax_mock_receipts", JSON.stringify(updatedList));
         
-        // Add transaction entry also
-        const existingTxString = localStorage.getItem("fillax_mock_transactions");
-        const existingTx = existingTxString ? JSON.parse(existingTxString) : [];
-        const newTx = {
-          id: `sim-tx-${Date.now()}`,
-          date: dummyRecord.date,
-          name: `${dummyRecord.vendor} (สแกนผ่านเว็บ)`,
-          amount: dummyRecord.amount || 0.0,
-          type: "expense",
-          category: dummyRecord.category,
-          is_tax_deductible: dummyRecord.is_dbd_verified,
-          note: `สลักล็อก ID: ${dummyRecord.id} | DBD Verified: True (โหมดทดสอบ)`,
-          status: "completed"
-        };
-        localStorage.setItem("fillax_mock_transactions", JSON.stringify([newTx, ...existingTx]));
+        // Only insert transaction ledger record automatically if status is completed
+        if (status === "completed") {
+          const existingTxString = localStorage.getItem("fillax_mock_transactions");
+          const existingTx = existingTxString ? JSON.parse(existingTxString) : [];
+          const newTx = {
+            id: `sim-tx-${Date.now()}`,
+            date: dummyRecord.date,
+            name: `${dummyRecord.vendor} (สแกนผ่านเว็บ)`,
+            amount: dummyRecord.amount || 0.0,
+            type: "expense",
+            category: dummyRecord.category,
+            is_tax_deductible: dummyRecord.is_dbd_verified,
+            note: `สลักล็อก ID: ${dummyRecord.id} | DBD Verified: True (โหมดทดสอบ)`,
+            status: "completed"
+          };
+          localStorage.setItem("fillax_mock_transactions", JSON.stringify([newTx, ...existingTx]));
+        }
         
         setOcrCount(ocrCount + 1);
         localStorage.setItem("fillax_ocr_count", (ocrCount + 1).toString());
         
         fetchReceipts();
-      }, 1500);
+      }, 1200);
     } finally {
       setIsUploading(false);
     }

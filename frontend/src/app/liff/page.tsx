@@ -163,42 +163,78 @@ function LiffReviewContent() {
 
   // Load Mock fallback data
   const loadMockReceipt = (id: string) => {
-    const mock = id === "mock-seven" ? {
-      id: "mock-seven",
-      vendor: "7-Eleven",
-      amount: 1335.00,
-      date: new Date().toISOString().split("T")[0],
-      category: "ต้นทุนสินค้า/วัตถุดิบ",
-      description: "ซื้อกล่องพัสดุและบะหมี่กึ่งสำเร็จรูป",
-      seller_tax_id: "0107542000011",
-      is_dbd_verified: true,
-      dbd_company_name: "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
-      user_id: "guest",
-      file_name: ""
-    } : {
-      id: "mock-amazon",
-      vendor: "Cafe Amazon",
-      amount: 255.00,
-      date: new Date().toISOString().split("T")[0],
-      category: "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
-      description: "กาแฟรับรองลูกค้าตกลงซื้อขายสินค้า",
-      seller_tax_id: "0107561000242",
-      is_dbd_verified: true,
-      dbd_company_name: "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)",
-      user_id: "guest",
-      file_name: ""
-    };
+    let mock: any = null;
+    
+    // Attempt to load from localStorage first for custom Guest Mode uploaded receipts
+    const localString = localStorage.getItem("fillax_mock_receipts");
+    if (localString) {
+      try {
+        const list = JSON.parse(localString);
+        const found = list.find((r: any) => r.id === id);
+        if (found) {
+          mock = {
+            id: found.id,
+            vendor: found.vendor || "",
+            amount: found.amount !== null ? found.amount : null,
+            date: found.date || new Date().toISOString().split("T")[0],
+            category: found.category || CATEGORIES[0],
+            description: found.description || "",
+            seller_tax_id: found.seller_tax_id || "",
+            is_dbd_verified: found.is_dbd_verified || false,
+            dbd_company_name: found.dbd_company_name || null,
+            user_id: "guest",
+            file_name: found.file_url || "" // Holds the local Blob URL or image URL
+          };
+        }
+      } catch (err) {
+        console.error("Error parsing local receipts in loadMockReceipt:", err);
+      }
+    }
+    
+    if (!mock) {
+      mock = id === "mock-seven" ? {
+        id: "mock-seven",
+        vendor: "7-Eleven",
+        amount: 1335.00,
+        date: new Date().toISOString().split("T")[0],
+        category: "ต้นทุนสินค้า/วัตถุดิบ",
+        description: "ซื้อกล่องพัสดุและบะหมี่กึ่งสำเร็จรูป",
+        seller_tax_id: "0107542000011",
+        is_dbd_verified: true,
+        dbd_company_name: "บริษัท ซีพี ออลล์ จำกัด (มหาชน)",
+        user_id: "guest",
+        file_name: ""
+      } : {
+        id: "mock-amazon",
+        vendor: "Cafe Amazon",
+        amount: 255.00,
+        date: new Date().toISOString().split("T")[0],
+        category: "รายจ่ายอื่นๆ ที่เกี่ยวข้องกับธุรกิจ",
+        description: "กาแฟรับรองลูกค้าตกลงซื้อขายสินค้า",
+        seller_tax_id: "0107561000242",
+        is_dbd_verified: true,
+        dbd_company_name: "บริษัท ปตท. น้ำมันและการค้าปลีก จำกัด (มหาชน)",
+        user_id: "guest",
+        file_name: ""
+      };
+    }
 
     setReceipt(mock);
     setVendor(mock.vendor);
-    setAmount(mock.amount.toString());
+    setAmount(mock.amount !== null ? mock.amount.toString() : "");
     setDate(mock.date);
     setCategory(mock.category);
     setDescription(mock.description);
     setSellerTaxId(mock.seller_tax_id || "");
     setIsDbdVerified(mock.is_dbd_verified);
     setDbdCompanyName(mock.dbd_company_name);
-    setImageUrl(id === "mock-seven" ? "/mock-receipt-seven.png" : "/fillax-mascot-v4.png");
+    
+    // Dynamically set image URL to local Blob URL or static fallback image
+    if (mock.file_name) {
+      setImageUrl(mock.file_name);
+    } else {
+      setImageUrl(id === "mock-seven" ? "/mock-receipt-seven.png" : "/fillax-mascot-v4.png");
+    }
   };
 
   // 2. Modulo-11 Juristic Checksum Verification
